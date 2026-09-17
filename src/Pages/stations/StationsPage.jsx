@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Navbar } from '../../components/Navbar';
 import { Sidebar } from '../../components/Sidebar';
 import { SeismicMap } from '../../components/earthquakes/SeismicMap';
+import { StationDetailPanel } from '../../components/modals/StationDetailPanel';
 import { SimulationClock } from '../../components/clock/SimulationClock';
 import { CreateStationModal } from '../../components/modals/CreateStationModal';
 import { EditStationModal } from '../../components/modals/EditStationModal';
@@ -9,6 +10,7 @@ import { useSimulationClock } from '../../hooks/SimulationClock';
 import { estacionesService } from '../../services/StationsServices';
 import { initialZones } from '../../data/mockZones';
 import { ShieldAlert, Loader2 } from 'lucide-react';
+import { CreateSeismicEventModal } from '../../components/modals/CreateSeismicEventModal';
 
 export const EstacionesPage = () => {
   const [theme, setTheme] = useState('dark');
@@ -20,6 +22,7 @@ export const EstacionesPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
+  const [isCreateEventModalOpen, setIsCreateEventModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingStation, setEditingStation] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -50,7 +53,7 @@ export const EstacionesPage = () => {
     return () => { isMounted = false; };
   }, []);
 
-  // Callbacks memoizados para evitar re-creación en cada render
+  // Callbacks memoizados
   const handleStationCreated = useCallback((newStation) => {
     setStations((prev) => [...prev, newStation]);
   }, []);
@@ -74,7 +77,16 @@ export const EstacionesPage = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
-  // Memoizar el filtro de búsqueda para no iterar arreglos innecesariamente
+  const handleReportSeism = useCallback((station) => {
+    alert(`Reportar sismo detectado en la estación: ${station.name}`);
+  }, []);
+
+const handleEventCreated = (newEvent) => {
+  setEvents((prev) => [...prev, newEvent]);
+};
+
+
+  // Memoizar el filtro de búsqueda
   const filteredStations = useMemo(() => {
     if (!searchTerm.trim()) return stations;
     const term = searchTerm.toLowerCase();
@@ -107,6 +119,8 @@ export const EstacionesPage = () => {
           onSelectStation={setSelectedStation}
           onEditStation={handleOpenEditModal}
           onDeleteSuccess={handleDeleteSuccess}
+          onCreateEvent={() => setIsCreateEventModalOpen(true)} // Abre el modal desde el botón +
+          onEventsDeletedSuccess={() => setEvents([])}
         />
 
         <main className="flex-1 relative overflow-hidden flex items-center justify-center">
@@ -138,9 +152,11 @@ export const EstacionesPage = () => {
             selectedStation={selectedStation}
             onSelectStation={setSelectedStation}
           />
-
+        
           {/* Leyenda */}
-          <div className={`absolute bottom-6 right-6 z-10 border p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[210px] backdrop-blur-xl ${
+          <div className={`absolute bottom-6 right-6 z-10 border p-4 rounded-2xl shadow-2xl text-xs space-y-2.5 min-w-[210px] backdrop-blur-xl transition-all duration-300 ${
+            selectedStation ? 'mr-80 sm:mr-96' : ''
+          } ${
             isDark ? 'bg-zinc-900/80 border-zinc-800/80 text-zinc-300' : 'bg-white/90 border-amber-200 text-zinc-700'
           }`}>
             <div className={`flex items-center space-x-2 pb-2 border-b font-extrabold ${isDark ? 'border-zinc-800 text-zinc-200' : 'border-amber-100 text-zinc-800'}`}>
@@ -169,6 +185,14 @@ export const EstacionesPage = () => {
               </div>
             </div>
           </div>
+
+          {/* Panel Lateral de Detalle de Estación */}
+          <StationDetailPanel
+            station={selectedStation}
+            theme={theme}
+            onClose={() => setSelectedStation(null)}
+            onReportSeism={handleReportSeism}
+          />
         </main>
       </div>
 
@@ -177,6 +201,13 @@ export const EstacionesPage = () => {
         theme={theme}
         onClose={() => setIsCreateModalOpen(false)}
         onStationCreated={handleStationCreated}
+      />
+      
+      <CreateSeismicEventModal
+        isOpen={isCreateEventModalOpen}
+        theme={theme}
+        onClose={() => setIsCreateEventModalOpen(false)}
+        onEventCreated={handleEventCreated}
       />
 
       <EditStationModal

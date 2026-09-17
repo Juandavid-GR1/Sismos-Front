@@ -8,22 +8,28 @@ import {
   AlertTriangle, 
   ChevronRight, 
   ChevronLeft,
-  Loader2
+  Loader2,
+  Plus
 } from 'lucide-react';
 import { estacionesService } from '../services/StationsServices';
+import { sismosService } from '../services/SismosServices';
 
 export const Sidebar = ({ 
   theme,
   stations = [], 
+  events = [],            // Lista de eventos sísmicos actual
   selectedStation,
   onSelectStation, 
   onEditStation, 
-  onDeleteSuccess
+  onDeleteSuccess,
+  onCreateEvent,          // Callback para abrir modal de creación
+  onEventsDeletedSuccess  // Callback para actualizar la UI tras eliminar eventos
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showStationsLayer, setShowStationsLayer] = useState(true);
   const [showEventsLayer, setShowEventsLayer] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
+  const [isDeletingEvents, setIsDeletingEvents] = useState(false);
 
   const isDark = theme === 'dark';
 
@@ -41,6 +47,37 @@ export const Sidebar = ({
       alert(error instanceof Error ? error.message : 'Error al eliminar la estación');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // Manejador del llamado a sismosService.delete para eliminar eventos sísmicos
+  const handleDeleteEvents = async () => {
+    if (!events || events.length === 0) {
+      alert('No hay eventos sísmicos registrados para eliminar.');
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `¿Estás seguro de eliminar los ${events.length} eventos sísmicos de la base de datos?`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      setIsDeletingEvents(true);
+      // Ejecutamos las peticiones DELETE /sismos/:id en paralelo mediante el servicio
+      await Promise.all(
+        events
+          .filter((evt) => evt.id !== undefined && evt.id !== null)
+          .map((evt) => sismosService.delete(evt.id))
+      );
+      
+      if (onEventsDeletedSuccess) {
+        onEventsDeletedSuccess();
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Error al eliminar eventos sísmicos');
+    } finally {
+      setIsDeletingEvents(false);
     }
   };
 
@@ -76,9 +113,9 @@ export const Sidebar = ({
         
         <div className="space-y-2">
           {/* Estaciones */}
-          <label 
+          <div
             title={isCollapsed ? "Estaciones Sísmicas" : ""}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-300 ${
+            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all duration-300 ${
               isCollapsed ? 'justify-center p-2' : ''
             } ${
               isDark 
@@ -86,10 +123,10 @@ export const Sidebar = ({
                 : 'bg-amber-50/50 border-amber-100 hover:border-orange-300'
             }`}
           >
-            <span className="flex items-center space-x-2.5 font-medium">
+            <label className="flex items-center space-x-2.5 font-medium cursor-pointer">
               <Radio className="h-4 w-4 text-amber-500 shrink-0" />
               {!isCollapsed && <span>Estaciones Sísmicas</span>}
-            </span>
+            </label>
             {!isCollapsed && (
               <input 
                 type="checkbox" 
@@ -98,12 +135,12 @@ export const Sidebar = ({
                 className="accent-orange-500 rounded cursor-pointer" 
               />
             )}
-          </label>
+          </div>
 
-          {/* Eventos */}
-          <label 
+          {/* Eventos Sísmicos (Con Acciones Integradas con sismosService) */}
+          <div 
             title={isCollapsed ? "Eventos Sísmicos" : ""}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-300 ${
+            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all duration-300 ${
               isCollapsed ? 'justify-center p-2' : ''
             } ${
               isDark 
@@ -111,19 +148,56 @@ export const Sidebar = ({
                 : 'bg-amber-50/50 border-amber-100 hover:border-orange-300'
             }`}
           >
-            <span className="flex items-center space-x-2.5 font-medium">
+            <label className="flex items-center space-x-2.5 font-medium cursor-pointer">
               <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
               {!isCollapsed && <span>Eventos Sísmicos</span>}
-            </span>
+            </label>
+
             {!isCollapsed && (
-              <input 
-                type="checkbox" 
-                checked={showEventsLayer} 
-                onChange={(e) => setShowEventsLayer(e.target.checked)}
-                className="accent-orange-500 rounded cursor-pointer" 
-              />
+              <div className="flex items-center space-x-1.5">
+                {/* Botón Crear Evento (Dispara modal para hacer POST /sismos) */}
+                <button
+                  type="button"
+                  onClick={() => onCreateEvent && onCreateEvent()}
+                  title="Crear/Reportar Sismo (POST /sismos)"
+                  className={`p-1 rounded-lg transition-colors ${
+                    isDark 
+                      ? 'hover:bg-zinc-800 text-orange-400 hover:text-orange-300' 
+                      : 'hover:bg-amber-100 text-orange-500'
+                  }`}
+                >
+                  <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
+                </button>
+
+                {/* Botón Eliminar Eventos (Ejecuta sismosService.delete) */}
+                <button
+                  type="button"
+                  disabled={isDeletingEvents}
+                  onClick={handleDeleteEvents}
+                  title="Eliminar Sismos de la API (DELETE /sismos/:id)"
+                  className={`p-1 rounded-lg transition-colors disabled:opacity-50 ${
+                    isDark 
+                      ? 'hover:bg-zinc-800 text-red-400 hover:text-red-300' 
+                      : 'hover:bg-red-50 text-red-500'
+                  }`}
+                >
+                  {isDeletingEvents ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+
+                {/* Checkbox Visibilidad */}
+                <input 
+                  type="checkbox" 
+                  checked={showEventsLayer} 
+                  onChange={(e) => setShowEventsLayer(e.target.checked)}
+                  className="accent-orange-500 rounded cursor-pointer ml-1" 
+                />
+              </div>
             )}
-          </label>
+          </div>
         </div>
       </div>
 
