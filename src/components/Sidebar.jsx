@@ -7,21 +7,42 @@ import {
   Radio, 
   AlertTriangle, 
   ChevronRight, 
-  ChevronLeft 
+  ChevronLeft,
+  Loader2
 } from 'lucide-react';
+import { estacionesService } from '../services/StationsServices';
 
 export const Sidebar = ({ 
   theme,
-  stations, 
+  stations = [], 
   selectedStation,
   onSelectStation, 
   onEditStation, 
-  onDeleteStation 
+  onDeleteSuccess
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showStationsLayer, setShowStationsLayer] = useState(true);
   const [showEventsLayer, setShowEventsLayer] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
+
   const isDark = theme === 'dark';
+
+  // Manejador del llamado a estacionesService.delete
+  const handleDelete = async (id) => {
+    if (!id) return;
+    const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta estación?');
+    if (!confirmDelete) return;
+
+    try {
+      setDeletingId(id);
+      await estacionesService.delete(id);
+      onDeleteSuccess(id);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Error al eliminar la estación');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <aside 
@@ -54,7 +75,7 @@ export const Sidebar = ({
         </div>
         
         <div className="space-y-2">
-          {/* Option 1: Estaciones */}
+          {/* Estaciones */}
           <label 
             title={isCollapsed ? "Estaciones Sísmicas" : ""}
             className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-300 ${
@@ -79,7 +100,7 @@ export const Sidebar = ({
             )}
           </label>
 
-          {/* Option 2: Eventos */}
+          {/* Eventos */}
           <label 
             title={isCollapsed ? "Eventos Sísmicos" : ""}
             className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-300 ${
@@ -129,10 +150,11 @@ export const Sidebar = ({
         {stations.map((station) => {
           const isSelected = selectedStation?.id === station.id;
           const isActive = station.status === 'activa';
+          const isDeleting = deletingId === station.id;
 
           return (
             <div 
-              key={station.id}
+              key={station.id ?? `${station.lat}-${station.lon}`}
               title={isCollapsed ? `${station.name} (${station.status})` : ""}
               className={`rounded-2xl border transition-all duration-300 relative group overflow-hidden ${
                 isCollapsed ? 'p-2 flex flex-col items-center justify-center' : 'p-3.5'
@@ -154,7 +176,6 @@ export const Sidebar = ({
               {/* VISTA COLAPSADA */}
               {isCollapsed ? (
                 <div className="flex flex-col items-center space-y-2 w-full">
-                  <span className="text-[9px] font-mono font-bold text-orange-500">{station.id}</span>
                   <button
                     onClick={() => onSelectStation(station)}
                     className="p-1.5 hover:bg-orange-500/20 text-orange-500 rounded-lg transition-colors"
@@ -168,7 +189,6 @@ export const Sidebar = ({
                 <>
                   <div className="flex justify-between items-start mb-1.5">
                     <div>
-                      <span className="text-[10px] font-mono font-bold text-orange-500 tracking-wide">{station.id}</span>
                       <h3 className={`font-bold text-xs ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
                         {station.name}
                       </h3>
@@ -207,11 +227,19 @@ export const Sidebar = ({
                       >
                         <Edit3 className="h-3.5 w-3.5" />
                       </button>
+                      
                       <button 
-                        onClick={() => onDeleteStation(station.id)}
-                        className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-red-400' : 'hover:bg-red-50 text-zinc-400 hover:text-red-500'}`}
+                        disabled={isDeleting}
+                        onClick={() => handleDelete(station.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-red-400' : 'hover:bg-red-50 text-zinc-400 hover:text-red-500'
+                        }`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {isDeleting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     </div>
                   </div>

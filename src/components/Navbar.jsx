@@ -1,8 +1,14 @@
 import React from 'react';
-import { Activity, Search, User, Plus, Bell } from 'lucide-react';
+import { Activity, Search, User, Plus } from 'lucide-react';
 import { ThemeToggle } from './buttons/ThemeToggle';
 
-export const Navbar = ({ theme, onToggleTheme, onOpenCreateModal }) => {
+export const Navbar = ({
+  theme,
+  onToggleTheme,
+  onOpenCreateModal,
+  searchTerm = '',
+  onSearchChange
+}) => {
   const isDark = theme === 'dark';
 
   return (
@@ -38,7 +44,9 @@ export const Navbar = ({ theme, onToggleTheme, onOpenCreateModal }) => {
         <Search className={`absolute left-3.5 top-2.5 h-4 w-4 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`} />
         <input
           type="text"
-          placeholder="Buscar estación o evento sísmico..."
+          value={searchTerm}
+          onChange={(e) => onSearchChange?.(e.target.value)}
+          placeholder="Buscar estación por nombre o departamento..."
           className={`w-full rounded-xl pl-10 pr-4 py-2 text-xs transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
             isDark 
               ? 'bg-zinc-900/60 border border-zinc-800/80 text-zinc-200 placeholder-zinc-500 focus:border-orange-500/60' 

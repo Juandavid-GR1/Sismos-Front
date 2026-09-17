@@ -1,69 +1,88 @@
-import React from 'react';
-import Map, { Marker, Source, Layer } from 'react-map-gl/mapbox';
-import { Radio, Activity } from 'lucide-react';
+import React, { useRef, useEffect, useMemo, memo } from 'react';
+import Map, { Marker, Source, Layer, Popup } from 'react-map-gl/mapbox';
+import { Radio, Activity, MapPin, RadioTower } from 'lucide-react';
+import circle from '@turf/circle';
 import { flatToGeo } from '../../utils/geoUtils';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { StationPopupCard } from '../modals/StationPopupCard';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-export const SeismicMap = ({ theme, stations, events, zones, selectedStation, onSelectStation }) => {
+export const SeismicMap = memo(({
+  theme,
+  stations = [],
+  events = [],
+  zones = [],
+  selectedStation,
+  onSelectStation
+}) => {
   const isDark = theme === 'dark';
+  const mapRef = useRef(null);
 
-  // 1. Convertir Zonas (0-1000km) a polígonos GeoJSON
-  const zonesGeoJSON = {
+  // 1. Animación suave sin re-renderizar componentes innecesarios
+  useEffect(() => {
+    if (selectedStation && mapRef.current) {
+      const lat = Number(selectedStation.lat);
+      const lon = Number(selectedStation.lon);
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        mapRef.current.flyTo({
+          center: [lon, lat],
+          zoom: 9,
+          duration: 1200,
+          essential: true
+        });
+      }
+    }
+  }, [selectedStation]);
+
+  // 2. MEMOIZAR GeoJSON de Zonas (Solo se recalcula si cambia 'zones')
+  const zonesGeoJSON = useMemo(() => ({
     type: 'FeatureCollection',
     features: zones.map((zone) => {
-      const p1 = flatToGeo(zone.bounds[0], zone.bounds[1]); // xMin, yMin
-      const p2 = flatToGeo(zone.bounds[2], zone.bounds[1]); // xMax, yMin
-      const p3 = flatToGeo(zone.bounds[2], zone.bounds[3]); // xMax, yMax
-      const p4 = flatToGeo(zone.bounds[0], zone.bounds[3]); // xMin, yMax
+      const p1 = flatToGeo(zone.bounds[0], zone.bounds[1]);
+      const p2 = flatToGeo(zone.bounds[2], zone.bounds[1]);
+      const p3 = flatToGeo(zone.bounds[2], zone.bounds[3]);
+      const p4 = flatToGeo(zone.bounds[0], zone.bounds[3]);
 
       return {
         type: 'Feature',
-        properties: {
-          id: zone.id,
-          name: zone.name,
-          isPopulated: zone.isPopulated,
-        },
+        properties: { id: zone.id, name: zone.name, isPopulated: zone.isPopulated },
         geometry: {
           type: 'Polygon',
-          coordinates: [[
-            [p1.lon, p1.lat],
-            [p2.lon, p2.lat],
-            [p3.lon, p3.lat],
-            [p4.lon, p4.lat],
-            [p1.lon, p1.lat]
-          ]]
+          coordinates: [[[p1.lon, p1.lat], [p2.lon, p2.lat], [p3.lon, p3.lat], [p4.lon, p4.lat], [p1.lon, p1.lat]]]
         }
       };
     })
-  };
+  }), [zones]);
 
-  // 2. Cobertura de Estaciones (Buffer en GeoJSON)
-  const coverageGeoJSON = {
+  // 3. MEMOIZAR GeoJSON de Cobertura (Solo recalcula Turf al cambiar 'stations')
+  const coverageGeoJSON = useMemo(() => ({
     type: 'FeatureCollection',
-    features: stations.map((st) => ({
-      type: 'Feature',
-      properties: { id: st.id, status: st.status },
-      geometry: {
-        type: 'Point',
-        coordinates: [st.lon, st.lat]
-      }
-    }))
-  };
+    features: stations.map((st) => {
+      const center = [Number(st.lon), Number(st.lat)];
+      const radiusInKm = Number(st.coverage) || 50;
+      return circle(center, radiusInKm, {
+        units: 'kilometers',
+        properties: { id: st.id, status: st.status, coverage: radiusInKm }
+      });
+    })
+  }), [stations]);
+
+  // Estilos visuales memoizados según el tema
+  const mapStyle = isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11';
 
   return (
     <div className="w-full h-full relative">
       <Map
-        initialViewState={{
-          longitude: -74.5,
-          latitude: 4.5,
-          zoom: 5.8
-        }}
-        mapStyle={isDark ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11'}
+        ref={mapRef}
+        initialViewState={{ longitude: -74.5, latitude: 4.5, zoom: 5.8 }}
+        mapStyle={mapStyle}
         mapboxAccessToken={MAPBOX_TOKEN}
         style={{ width: '100%', height: '100%' }}
+        reuseMaps // 🚀 REUTILIZA EL CANVAS WEBGL ENTRE NAVEGACIONES
       >
-        {/* CAPA 1: Zonas Pobladas y No Pobladas */}
+        {/* CAPA 1: Zonas */}
         <Source id="zones-data" type="geojson" data={zonesGeoJSON}>
           <Layer
             id="zones-fill"
@@ -84,43 +103,74 @@ export const SeismicMap = ({ theme, stations, events, zones, selectedStation, on
           />
         </Source>
 
-        {/* CAPA 2: Cobertura de las Estaciones (Círculos de Alcance) */}
+        {/* CAPA 2: Cobertura */}
         <Source id="coverage-data" type="geojson" data={coverageGeoJSON}>
           <Layer
-            id="coverage-radius"
-            type="circle"
+            id="coverage-fill"
+            type="fill"
             paint={{
-              'circle-radius': 60, // Radio de cobertura de la estación
-              'circle-color': ['case', ['==', ['get', 'status'], 'activa'], '#10b981', '#ef4444'],
-              'circle-opacity': 0.08,
-              'circle-stroke-width': 1,
-              'circle-stroke-color': ['case', ['==', ['get', 'status'], 'activa'], '#10b981', '#ef4444'],
+              'fill-color': ['case', ['==', ['get', 'status'], 'activa'], '#10b981', '#ef4444'],
+              'fill-opacity': 0.12,
+            }}
+          />
+          <Layer
+            id="coverage-border"
+            type="line"
+            paint={{
+              'line-color': ['case', ['==', ['get', 'status'], 'activa'], '#10b981', '#ef4444'],
+              'line-width': 1.5,
             }}
           />
         </Source>
 
         {/* MARCADORES: Estaciones */}
-        {stations.map((station) => (
-          <Marker
-            key={station.id}
-            longitude={station.lon}
-            latitude={station.lat}
-            onClick={(e) => {
-              e.originalEvent.stopPropagation();
-              onSelectStation(station);
-            }}
-          >
-            <div className={`p-2 rounded-xl cursor-pointer transition-transform hover:scale-125 ${
-              station.status === 'activa'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.4)]'
-                : 'bg-red-500/20 text-red-500 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.6)] animate-pulse'
-            }`}>
-              <Radio className="w-4 h-4 stroke-[2.5]" />
-            </div>
-          </Marker>
-        ))}
+        {stations.map((station) => {
+          const isSelected = selectedStation?.id === station.id;
+          const isActive = station.status === 'activa';
 
-        {/* MARCADORES: Epicentros de Eventos (Convertidos de plano X,Y a Mapbox) */}
+          return (
+            <Marker
+              key={station.id ?? `${station.lat}-${station.lon}`}
+              longitude={Number(station.lon)}
+              latitude={Number(station.lat)}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                onSelectStation(station);
+              }}
+            >
+              <div className={`p-2 rounded-xl cursor-pointer transition-transform hover:scale-125 ${
+                isSelected ? 'ring-2 ring-orange-500 scale-125 z-20' : ''
+              } ${
+                isActive
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.4)]'
+                  : 'bg-red-500/20 text-red-500 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.6)] animate-pulse'
+              }`}>
+                <Radio className="w-4 h-4 stroke-[2.5]" />
+              </div>
+            </Marker>
+          );
+        })}
+
+        {/* POPUP: Estación Seleccionada */}
+        {selectedStation && (
+          <Popup
+            longitude={Number(selectedStation.lon)}
+            latitude={Number(selectedStation.lat)}
+            anchor="bottom"
+            onClose={() => onSelectStation(null)}
+            closeOnClick={false}
+            className="z-30"
+            offset={15}
+          >
+            <StationPopupCard
+              station={selectedStation}
+              isDark={isDark}
+              onClose={() => onSelectStation(null)}
+            />
+          </Popup>
+        )} 
+
+        {/* MARCADORES: Eventos */}
         {events.map((evt) => {
           const geoCoords = flatToGeo(evt.x, evt.y);
           return (
@@ -140,4 +190,4 @@ export const SeismicMap = ({ theme, stations, events, zones, selectedStation, on
       </Map>
     </div>
   );
-};
+});
