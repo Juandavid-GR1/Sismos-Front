@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, AlertTriangle, MapPin, Gauge, Layers } from 'lucide-react';
+import { X, AlertTriangle, MapPin, Gauge, Layers, Radio } from 'lucide-react';
 import { sismosService } from '../../services/SismosServices';
 import { StatusSismo, type SeismicEvent } from '../../models/Sismos';
 
@@ -21,8 +21,9 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
   const [formData, setFormData] = useState({
     magnitude: 4.5,
     depth: 15.0,
-    epicenter_x: 500.0,
-    epicenter_y: 500.0,
+    latitude: 4.5709,
+    longitude: -74.2973,
+    stationId: '', // Opcional por defecto
   });
 
   const [loading, setLoading] = useState(false);
@@ -30,14 +31,16 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
 
   if (!isOpen) return null;
 
-  // Redondeo a 1 decimal máximo
-  const roundToOneDecimal = (num: number) => Math.round(num * 10) / 10;
+  const roundToDecimals = (num: number, decimals: number) => {
+    const factor = Math.pow(10, decimals);
+    return Math.round(num * factor) / factor;
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: value === '' ? '' : parseFloat(value),
+      [name]: name === 'stationId' ? value : value === '' ? '' : parseFloat(value),
     }));
   };
 
@@ -46,44 +49,50 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
     setLoading(true);
     setError(null);
 
-    // Validaciones de rango
-    const mag = roundToOneDecimal(Number(formData.magnitude));
-    const depth = roundToOneDecimal(Number(formData.depth));
-    const epicX = roundToOneDecimal(Number(formData.epicenter_x));
-    const epicY = roundToOneDecimal(Number(formData.epicenter_y));
+    const mag = roundToDecimals(Number(formData.magnitude), 1);
+    const depth = roundToDecimals(Number(formData.depth), 1);
+    const lat = roundToDecimals(Number(formData.latitude), 6);
+    const lon = roundToDecimals(Number(formData.longitude), 6);
+    const station = formData.stationId.trim();
 
     if (isNaN(mag) || mag < -2.0 || mag > 10.0) {
-      setError('La magnitud M debe estar entre -2.0 y 10.0 con máximo un decimal.');
+      setError('La magnitud M debe estar entre -2.0 y 10.0.');
       setLoading(false);
       return;
     }
 
     if (isNaN(depth) || depth < 0.0 || depth > 700.0) {
-      setError('La profundidad H debe estar entre 0.0 y 700.0 km con máximo un decimal.');
+      setError('La profundidad H debe estar entre 0.0 y 700.0 km.');
       setLoading(false);
       return;
     }
 
-    if (isNaN(epicX) || epicX < 0.0 || epicX > 1000.0 || isNaN(epicY) || epicY < 0.0 || epicY > 1000.0) {
-      setError('Las coordenadas del epicentro (x, y) deben estar entre 0.0 y 1000.0 km.');
+    if (isNaN(lat) || lat < -90.0 || lat > 90.0) {
+      setError('La latitud debe estar entre -90.0° y 90.0°.');
+      setLoading(false);
+      return;
+    }
+
+    if (isNaN(lon) || lon < -180.0 || lon > 180.0) {
+      setError('La longitud debe estar entre -180.0° y 180.0°.');
       setLoading(false);
       return;
     }
 
     try {
-      // Los atributos no visibles se generan de forma automática según reglas de negocio
       const payload = {
         magnitude: mag,
         depth: depth,
-        epicenter_x: epicX,
-        epicenter_y: epicY,
-        timestamp: new Date().toISOString().split('.')[0] + 'Z', // Fecha/hora UTC actual
-        revision: 1, // Alta inicia en revisión 1
-        reporting_stations: [], // Sin lista inicial de estaciones
-        status: StatusSismo.PENDIENTE, // Alta siempre inicia PENDIENTE
+        epicenter_x: lon,
+        epicenter_y: lat,
+        timestamp: new Date().toISOString(),
+        initial_station_id: station ? station : null, // Envía null si no hay estación
+        revision: 1,
+        reporting_stations: station ? [station] : [],
+        status: StatusSismo.PENDIENTE,
       };
 
-      const createdEvent = await sismosService.create(payload);
+      const createdEvent = await sismosService.create(payload as unknown as Partial<SeismicEvent>);
       onEventCreated(createdEvent);
       onClose();
     } catch (err) {
@@ -113,7 +122,7 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
             <div>
               <h2 className="text-sm font-black tracking-wide uppercase">REGISTRAR EVENTO SÍSMICO</h2>
               <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                Parámetros físicos y localización del epicentro
+                Coordenadas geográficas y parámetros del epicentro
               </p>
             </div>
           </div>
@@ -127,7 +136,7 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
           </button>
         </div>
 
-        {/* Formulario Reducido */}
+        {/* Formulario */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="p-3 text-xs rounded-xl bg-red-500/10 border border-red-500/30 text-red-500">
@@ -160,7 +169,7 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5 text-orange-500" /> Profundidad H (0 a 700 km)
+                <Layers className="w-3.5 h-3.5 text-orange-500" /> Profundidad (0 a 700 km)
               </label>
               <input
                 type="number"
@@ -180,20 +189,21 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
             </div>
           </div>
 
-          {/* Coordenadas Epicentro (X e Y) */}
+          {/* Coordenadas Geográficas: Latitud y Longitud */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-orange-500" /> Epicentro X (0 a 1000 km)
+                <MapPin className="w-3.5 h-3.5 text-orange-500" /> Latitud (-90° a 90°)
               </label>
               <input
                 type="number"
-                step="0.1"
-                min="0.0"
-                max="1000.0"
-                name="epicenter_x"
+                step="any"
+                min="-90.0"
+                max="90.0"
+                name="latitude"
+                placeholder="Ej: 4.5709"
                 required
-                value={formData.epicenter_x}
+                value={formData.latitude}
                 onChange={handleChange}
                 className={`w-full px-3.5 py-2.5 rounded-xl text-xs transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
                   isDark
@@ -205,16 +215,17 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-orange-500" /> Epicentro Y (0 a 1000 km)
+                <MapPin className="w-3.5 h-3.5 text-orange-500" /> Longitud (-180° a 180°)
               </label>
               <input
                 type="number"
-                step="0.1"
-                min="0.0"
-                max="1000.0"
-                name="epicenter_y"
+                step="any"
+                min="-180.0"
+                max="180.0"
+                name="longitude"
+                placeholder="Ej: -74.2973"
                 required
-                value={formData.epicenter_y}
+                value={formData.longitude}
                 onChange={handleChange}
                 className={`w-full px-3.5 py-2.5 rounded-xl text-xs transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
                   isDark
@@ -224,6 +235,8 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
               />
             </div>
           </div>
+
+          
 
           {/* Botones de Acción */}
           <div className="flex items-center justify-end space-x-3 pt-4 border-t border-zinc-800/40">

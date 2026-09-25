@@ -1,169 +1,385 @@
-import React from 'react';
-import { 
-  X, 
-  RadioTower, 
-  MapPin, 
-  AlertTriangle, 
-  Wifi, 
-  WifiOff, 
-  Activity, 
-  FileSpreadsheet 
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  X,
+  RadioTower,
+  MapPin,
+  AlertTriangle,
+  Send,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Activity,
+  Layers
 } from 'lucide-react';
+import { sismosService } from '../../services/SismosServices';
 
-export const StationDetailPanel = ({ 
-  station, 
-  theme, 
-  onClose, 
-  onReportSeism 
-}) => {
+// Helper: Extraer ID numérico del sismo
+const getSismoNumericId = (sismo) => {
+  if (sismo.numericId) return Number(sismo.numericId);
+  if (typeof sismo.id === 'string') {
+    return parseInt(sismo.id.replace(/\D/g, ''), 10);
+  }
+  return Number(sismo.id);
+};
+
+export const StationDetailPanel = ({ station, theme, onClose }) => {
+  const [sismos, setSismos] = useState([]);
+  const [loadingSismos, setLoadingSismos] = useState(false);
+  const [reportingId, setReportingId] = useState(null);
+  const [reportMessage, setReportMessage] = useState(null);
+
+  // Cargar sismos desde el servicio
+  const cargarSismos = useCallback(async (mostrarLoading = false) => {
+    try {
+      if (mostrarLoading) setLoadingSismos(true);
+
+      const data = await sismosService.getAll();
+      const lista = Array.isArray(data) ? data : data?.sismos || [];
+      setSismos(lista);
+    } catch (error) {
+      console.error('Error cargando sismos:', error);
+      if (mostrarLoading) {
+        setSismos([]);
+        setReportMessage({
+          type: 'error',
+          text: 'No se pudieron cargar los sismos.'
+        });
+      }
+    } finally {
+      if (mostrarLoading) setLoadingSismos(false);
+    }
+  }, []);
+
+  // Carga inicial + sincronización automática
+  useEffect(() => {
+    if (!station) return;
+
+    cargarSismos(true);
+
+    const intervalId = setInterval(() => {
+      cargarSismos(false);
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [station, cargarSismos]);
+
   if (!station) return null;
 
   const isDark = theme === 'dark';
   const isActive = station.status === 'activa';
   const lat = Number(station.lat);
   const lon = Number(station.lon);
+  const API_URL = import.meta.env.VITE_API_URL;
+
+  // Handler para enviar reporte sísmico
+  const reportarSismo = async (sismo) => {
+    try {
+      setReportingId(sismo.id);
+      setReportMessage(null);
+
+      const payload = {
+        sismo_id: getSismoNumericId(sismo),
+        station_id: station.id,
+        magnitude: Number(sismo.magnitude),
+        depth: Number(sismo.depth),
+        epicenter_x: Number(sismo.epicenter_x ?? sismo.lon ?? sismo.x),
+        epicenter_y: Number(sismo.epicenter_y ?? sismo.lat ?? sismo.y),
+        timestamp: sismo.timestamp || new Date().toISOString()
+      };
+
+      const response = await fetch(`${API_URL}/reportes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || 'No se pudo reportar el sismo.');
+      }
+
+      // Actualización reactiva inmediata en estado local
+      const sismoActualizado = data?.sismo;
+      if (sismoActualizado) {
+        const updatedId = getSismoNumericId(sismoActualizado);
+        setSismos((listaActual) =>
+          listaActual.map((item) =>
+            getSismoNumericId(item) === updatedId
+              ? { ...item, ...sismoActualizado }
+              : item
+          )
+        );
+      }
+
+      setReportMessage({
+        type: 'success',
+        text: 'Reporte registrado exitosamente.'
+      });
+
+      await cargarSismos(false);
+    } catch (error) {
+      console.error('Error reportando sismo:', error);
+      setReportMessage({
+        type: 'error',
+        text: error.message || 'Error al enviar el reporte.'
+      });
+    } finally {
+      setReportingId(null);
+    }
+  };
 
   return (
-    <aside 
-      className={`fixed top-16 right-0 bottom-0 w-80 sm:w-96 border-l z-30 transition-transform duration-300 ease-in-out backdrop-blur-xl flex flex-col shadow-2xl ${
-        isDark 
-          ? 'bg-zinc-950/95 border-zinc-800/80 text-zinc-100 shadow-black/50' 
-          : 'bg-white/95 border-amber-200/80 text-zinc-800 shadow-xl'
+    <aside
+      className={`fixed top-16 right-0 bottom-0 w-85 sm:w-96 border-l z-30 transition-all duration-300 backdrop-blur-2xl flex flex-col shadow-2xl ${
+        isDark
+          ? 'bg-zinc-950/95 border-zinc-800/80 text-zinc-100 shadow-black/60'
+          : 'bg-white/95 border-zinc-200/80 text-zinc-800 shadow-2xl shadow-orange-950/5'
       }`}
     >
-      {/* 1. Header con botón de cerrar */}
-      <div className={`p-4 border-b flex items-center justify-between ${
-        isDark ? 'border-zinc-800/60 bg-zinc-900/30' : 'border-amber-100 bg-amber-50/40'
-      }`}>
-        <div className="flex items-center space-x-2">
-          <div className={`p-2 rounded-xl ${
-            isActive 
-              ? isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
-              : isDark ? 'bg-red-500/10 text-red-400' : 'bg-red-50 text-red-600'
-          }`}>
-            <RadioTower className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="font-extrabold text-sm uppercase tracking-wide">
-              Detalles de Estación
-            </h2>
-            <p className={`text-[11px] font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-              ID: {station.id || 'N/A'}
-            </p>
-          </div>
-        </div>
+      {/* 1. Header con métricas de la estación */}
+      <div
+        className={`p-5 border-b relative overflow-hidden ${
+          isDark
+            ? 'border-zinc-800/80 bg-gradient-to-b from-zinc-900/80 to-zinc-950/40'
+            : 'border-zinc-200/60 bg-gradient-to-b from-orange-50/40 to-white'
+        }`}
+      >
+        <div className="absolute -top-10 -right-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl pointer-events-none" />
 
-        <button
-          onClick={onClose}
-          className={`p-1.5 rounded-lg transition-colors ${
-            isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white' : 'hover:bg-amber-100 text-zinc-500'
-          }`}
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* 2. Contenido Scrolleable */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
-        
-        {/* Nombre y departamento */}
-        <div className="space-y-1">
-          <span className="text-[10px] font-black uppercase tracking-wider text-orange-500">
-            {station.dept}
-          </span>
-          <h3 className="text-xl font-black">{station.name}</h3>
-        </div>
-
-        {/* Tarjeta Estado & Señal */}
-        <div className={`p-4 rounded-2xl border ${
-          isDark ? 'bg-zinc-900/50 border-zinc-800/60' : 'bg-amber-50/40 border-amber-200/60'
-        }`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              Estado Operativo
-            </span>
-            <span className={`text-xs font-black px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center space-x-1.5 ${
-              isActive 
-                ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30' 
-                : 'bg-red-500/15 text-red-500 border border-red-500/30'
-            }`}>
-              {isActive ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              <span>{station.status}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Métricas Principales */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className={`p-3.5 rounded-2xl border ${
-            isDark ? 'bg-zinc-900/40 border-zinc-800/60' : 'bg-zinc-50 border-zinc-200/60'
-          }`}>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-              Radio Cobertura
-            </span>
-            <div className="flex items-baseline space-x-1">
-              <span className="text-xl font-black text-orange-500">{station.coverage}</span>
-              <span className="text-xs font-semibold text-zinc-500">km</span>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-center space-x-3">
+            <div
+              className={`p-2.5 rounded-2xl border transition-colors ${
+                isActive
+                  ? isDark
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                  : isDark
+                    ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                    : 'bg-rose-50 border-rose-200 text-rose-600'
+              }`}
+            >
+              <RadioTower className="w-5 h-5" />
             </div>
-          </div>
 
-          <div className={`p-3.5 rounded-2xl border ${
-            isDark ? 'bg-zinc-900/40 border-zinc-800/60' : 'bg-zinc-50 border-zinc-200/60'
-          }`}>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-              Ubicación
-            </span>
-            <div className="flex items-center space-x-1 text-xs font-semibold text-zinc-500">
-              <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-              <span className="truncate">{station.dept}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Coordenadas Geográficas */}
-        <div className={`p-4 rounded-2xl border space-y-2 ${
-          isDark ? 'bg-zinc-900/30 border-zinc-800/60' : 'bg-zinc-50 border-zinc-200/60'
-        }`}>
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-            Coordenadas GPS
-          </span>
-          <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold">
             <div>
-              <span className="text-zinc-500 text-[10px] block font-sans">Latitud</span>
-              <span>{!isNaN(lat) ? lat.toFixed(5) : '0'}° N</span>
-            </div>
-            <div>
-              <span className="text-zinc-500 text-[10px] block font-sans">Longitud</span>
-              <span>{!isNaN(lon) ? lon.toFixed(5) : '0'}° W</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-orange-500 block">
+                {station.dept || 'Estación'}
+              </span>
+              <h2 className="font-extrabold text-base leading-tight tracking-tight">
+                {station.name}
+              </h2>
             </div>
           </div>
+
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-xl transition-all ${
+              isDark
+                ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white active:scale-95'
+                : 'hover:bg-zinc-100 text-zinc-500 active:scale-95'
+            }`}
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Sección de Actividad Sísmica Reciente (Visual) */}
-        <div className="space-y-2">
-          <div className="flex items-center space-x-2 text-zinc-400 text-xs font-bold uppercase tracking-wider">
-            <Activity className="w-4 h-4 text-orange-500" />
-            <span>Monitoreo en Tiempo Real</span>
+        {/* Métricas rápidas */}
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-500/10 text-[11px]">
+          {/* Status */}
+          <div
+            className={`flex items-center justify-center gap-1.5 px-2 py-1 rounded-lg border font-bold uppercase ${
+              isActive
+                ? isDark
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : isDark
+                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+            }`}
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              {isActive && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                  isActive ? 'bg-emerald-500' : 'bg-rose-500'
+                }`}
+              />
+            </span>
+            <span className="text-[10px] truncate">{station.status}</span>
           </div>
-          <div className={`p-3 rounded-xl border text-center text-xs font-medium ${
-            isDark ? 'bg-zinc-900/20 border-zinc-800/40 text-zinc-400' : 'bg-amber-50/30 border-amber-100 text-zinc-500'
-          }`}>
-            Estación transmitiendo telemetría continua.
+
+          {/* Coordenadas */}
+          <div
+            className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg border font-mono ${
+              isDark
+                ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300'
+                : 'bg-zinc-100/80 border-zinc-200/80 text-zinc-600'
+            }`}
+          >
+            <MapPin className="w-3 h-3 text-orange-500 shrink-0" />
+            <span className="truncate">
+              {!isNaN(lat) ? lat.toFixed(2) : '0'}°, {!isNaN(lon) ? lon.toFixed(2) : '0'}°
+            </span>
+          </div>
+
+          {/* Cobertura */}
+          <div
+            className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg border font-medium ${
+              isDark
+                ? 'bg-zinc-900/60 border-zinc-800 text-zinc-300'
+                : 'bg-zinc-100/80 border-zinc-200/80 text-zinc-600'
+            }`}
+          >
+            <Activity className="w-3 h-3 text-orange-500 shrink-0" />
+            <span>{station.coverage} km</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Footer con Botón de Acción */}
-      <div className={`p-4 border-t ${
-        isDark ? 'border-zinc-800/60 bg-zinc-950' : 'border-amber-100 bg-white'
-      }`}>
-        <button
-          onClick={() => onReportSeism && onReportSeism(station)}
-          className="w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-white bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 transition-all duration-300 shadow-lg shadow-orange-500/25 active:scale-[0.98] flex items-center justify-center space-x-2"
-        >
-          <AlertTriangle className="w-4 h-4" />
-          <span>Reportar Sismo</span>
-        </button>
+      {/* 2. Contenido principal (Lista de sismos) */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+        {/* Header de la lista */}
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center space-x-2">
+            <div className="p-1 rounded-md bg-orange-500/10 text-orange-500">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
+            <h3 className="text-xs font-black uppercase tracking-wider text-zinc-400">
+              Eventos Disponibles
+            </h3>
+          </div>
+
+          <span
+            className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
+              isDark
+                ? 'bg-zinc-900 text-orange-400 border border-zinc-800'
+                : 'bg-orange-50 text-orange-600 border border-orange-200/60'
+            }`}
+          >
+            {sismos.length}
+          </span>
+        </div>
+
+        {/* Mensajes de notificación */}
+        {reportMessage && (
+          <div
+            className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200 ${
+              reportMessage.type === 'success'
+                ? isDark
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : isDark
+                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+            }`}
+          >
+            {reportMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0" />
+            )}
+            <span className="flex-1">{reportMessage.text}</span>
+          </div>
+        )}
+
+        {/* Estados de carga / lista de sismos */}
+        {loadingSismos ? (
+          <div
+            className={`py-12 rounded-2xl border flex flex-col items-center justify-center gap-3 ${
+              isDark
+                ? 'bg-zinc-900/30 border-zinc-800/50 text-zinc-500'
+                : 'bg-zinc-50/50 border-zinc-200/60 text-zinc-500'
+            }`}
+          >
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <span className="text-xs font-medium">Sincronizando sismos...</span>
+          </div>
+        ) : sismos.length === 0 ? (
+          <div
+            className={`py-10 px-4 rounded-2xl border text-center text-xs ${
+              isDark
+                ? 'bg-zinc-900/20 border-zinc-800/40 text-zinc-500'
+                : 'bg-zinc-50/50 border-zinc-200/60 text-zinc-500'
+            }`}
+          >
+            No hay eventos sísmicos pendientes de reporte.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sismos.map((sismo) => {
+              const sismoId = getSismoNumericId(sismo);
+              const isReporting = reportingId === sismo.id;
+
+              return (
+                <div
+                  key={sismo.id}
+                  className={`group relative p-3.5 rounded-2xl border transition-all duration-200 ${
+                    isDark
+                      ? 'bg-zinc-900/60 border-zinc-800/80 hover:border-orange-500/40 hover:bg-zinc-900/90'
+                      : 'bg-white border-zinc-200/80 hover:border-orange-300 hover:shadow-md hover:shadow-orange-500/5'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black font-mono tracking-tight">
+                          {sismo.formatted_id || `SIS-${String(sismoId).padStart(6, '0')}`}
+                        </span>
+
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-gradient-to-r from-orange-500/15 to-amber-500/15 text-orange-500 border border-orange-500/20">
+                          M {sismo.magnitude}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px] text-zinc-400 font-medium">
+                        <span className="flex items-center gap-1">
+                          Prof:
+                          <strong className={isDark ? 'text-zinc-200' : 'text-zinc-700'}>
+                            {sismo.depth} km
+                          </strong>
+                        </span>
+
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-zinc-500" />
+                          <strong className={isDark ? 'text-zinc-200' : 'text-zinc-700'}>
+                            #{sismo.revision ?? 0}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isReporting}
+                      onClick={() => reportarSismo(sismo)}
+                      className={`shrink-0 px-3.5 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-wider text-white transition-all flex items-center gap-1.5 ${
+                        isReporting
+                          ? 'bg-zinc-700 cursor-not-allowed opacity-80'
+                          : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 active:scale-95 shadow-md shadow-orange-500/20'
+                      }`}
+                    >
+                      {isReporting ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Enviando</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Reportar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </aside>
   );

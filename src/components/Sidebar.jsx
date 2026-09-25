@@ -8,33 +8,34 @@ import {
   AlertTriangle, 
   ChevronRight, 
   ChevronLeft,
-  Loader2,
-  Plus
+  Loader2
 } from 'lucide-react';
 import { estacionesService } from '../services/StationsServices';
-import { sismosService } from '../services/SismosServices';
+import { SismosList } from '../components/Sismos/SismosList';
 
 export const Sidebar = ({ 
   theme,
   stations = [], 
-  events = [],            // Lista de eventos sísmicos actual
+  events = [],
   selectedStation,
+  selectedEvent,
   onSelectStation, 
+  onSelectEvent,
   onEditStation, 
+  onEditEvent, // 💡 Prop recibida para la edición de sismos
   onDeleteSuccess,
-  onCreateEvent,          // Callback para abrir modal de creación
-  onEventsDeletedSuccess  // Callback para actualizar la UI tras eliminar eventos
+  onCreateEvent,
+  onEventDeletedSuccess,
+  onEventsDeletedSuccess 
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [showStationsLayer, setShowStationsLayer] = useState(true);
-  const [showEventsLayer, setShowEventsLayer] = useState(true);
+  const [activeTab, setActiveTab] = useState('stations'); // 'stations' | 'events'
   const [deletingId, setDeletingId] = useState(null);
-  const [isDeletingEvents, setIsDeletingEvents] = useState(false);
 
   const isDark = theme === 'dark';
 
-  // Manejador del llamado a estacionesService.delete
-  const handleDelete = async (id) => {
+  // Eliminar estación
+  const handleDeleteStation = async (id) => {
     if (!id) return;
     const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta estación?');
     if (!confirmDelete) return;
@@ -42,7 +43,7 @@ export const Sidebar = ({
     try {
       setDeletingId(id);
       await estacionesService.delete(id);
-      onDeleteSuccess(id);
+      if (onDeleteSuccess) onDeleteSuccess(id);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Error al eliminar la estación');
     } finally {
@@ -50,36 +51,7 @@ export const Sidebar = ({
     }
   };
 
-  // Manejador del llamado a sismosService.delete para eliminar eventos sísmicos
-  const handleDeleteEvents = async () => {
-    if (!events || events.length === 0) {
-      alert('No hay eventos sísmicos registrados para eliminar.');
-      return;
-    }
-
-    const confirmDelete = window.confirm(
-      `¿Estás seguro de eliminar los ${events.length} eventos sísmicos de la base de datos?`
-    );
-    if (!confirmDelete) return;
-
-    try {
-      setIsDeletingEvents(true);
-      // Ejecutamos las peticiones DELETE /sismos/:id en paralelo mediante el servicio
-      await Promise.all(
-        events
-          .filter((evt) => evt.id !== undefined && evt.id !== null)
-          .map((evt) => sismosService.delete(evt.id))
-      );
-      
-      if (onEventsDeletedSuccess) {
-        onEventsDeletedSuccess();
-      }
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Error al eliminar eventos sísmicos');
-    } finally {
-      setIsDeletingEvents(false);
-    }
-  };
+  const safeStations = Array.isArray(stations) ? stations : [];
 
   return (
     <aside 
@@ -93,6 +65,7 @@ export const Sidebar = ({
     >
       {/* Botón Flotante para Colapsar / Expandir */}
       <button
+        type="button"
         onClick={() => setIsCollapsed(!isCollapsed)}
         title={isCollapsed ? "Expandir panel" : "Contraer panel"}
         className={`absolute -right-3 top-6 z-30 p-1.5 rounded-full border shadow-md transition-all duration-300 hover:scale-110 ${
@@ -104,224 +77,197 @@ export const Sidebar = ({
         {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
       </button>
 
-      {/* 1. Capas y Filtros */}
+      {/* 1. Encabezado Capas Visibles */}
       <div className={`p-4 border-b space-y-3 ${isDark ? 'border-zinc-800/60' : 'border-amber-100'}`}>
         <div className={`flex items-center space-x-2 text-orange-500 text-[11px] font-bold uppercase tracking-wider ${isCollapsed ? 'justify-center' : ''}`}>
           <Layers className="h-4 w-4 shrink-0" />
           {!isCollapsed && <span>Capas del Visor</span>}
         </div>
-        
-        <div className="space-y-2">
-          {/* Estaciones */}
-          <div
-            title={isCollapsed ? "Estaciones Sísmicas" : ""}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all duration-300 ${
-              isCollapsed ? 'justify-center p-2' : ''
-            } ${
-              isDark 
-                ? 'bg-zinc-900/40 border-zinc-800/40 hover:border-orange-500/40' 
-                : 'bg-amber-50/50 border-amber-100 hover:border-orange-300'
-            }`}
-          >
-            <label className="flex items-center space-x-2.5 font-medium cursor-pointer">
-              <Radio className="h-4 w-4 text-amber-500 shrink-0" />
-              {!isCollapsed && <span>Estaciones Sísmicas</span>}
-            </label>
-            {!isCollapsed && (
-              <input 
-                type="checkbox" 
-                checked={showStationsLayer} 
-                onChange={(e) => setShowStationsLayer(e.target.checked)}
-                className="accent-orange-500 rounded cursor-pointer" 
-              />
-            )}
-          </div>
-
-          {/* Eventos Sísmicos (Con Acciones Integradas con sismosService) */}
-          <div 
-            title={isCollapsed ? "Eventos Sísmicos" : ""}
-            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs transition-all duration-300 ${
-              isCollapsed ? 'justify-center p-2' : ''
-            } ${
-              isDark 
-                ? 'bg-zinc-900/40 border-zinc-800/40 hover:border-amber-500/40' 
-                : 'bg-amber-50/50 border-amber-100 hover:border-orange-300'
-            }`}
-          >
-            <label className="flex items-center space-x-2.5 font-medium cursor-pointer">
-              <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
-              {!isCollapsed && <span>Eventos Sísmicos</span>}
-            </label>
-
-            {!isCollapsed && (
-              <div className="flex items-center space-x-1.5">
-                {/* Botón Crear Evento (Dispara modal para hacer POST /sismos) */}
-                <button
-                  type="button"
-                  onClick={() => onCreateEvent && onCreateEvent()}
-                  title="Crear/Reportar Sismo (POST /sismos)"
-                  className={`p-1 rounded-lg transition-colors ${
-                    isDark 
-                      ? 'hover:bg-zinc-800 text-orange-400 hover:text-orange-300' 
-                      : 'hover:bg-amber-100 text-orange-500'
-                  }`}
-                >
-                  <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
-                </button>
-
-                {/* Botón Eliminar Eventos (Ejecuta sismosService.delete) */}
-                <button
-                  type="button"
-                  disabled={isDeletingEvents}
-                  onClick={handleDeleteEvents}
-                  title="Eliminar Sismos de la API (DELETE /sismos/:id)"
-                  className={`p-1 rounded-lg transition-colors disabled:opacity-50 ${
-                    isDark 
-                      ? 'hover:bg-zinc-800 text-red-400 hover:text-red-300' 
-                      : 'hover:bg-red-50 text-red-500'
-                  }`}
-                >
-                  {isDeletingEvents ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
-                  ) : (
-                    <Trash2 className="h-3.5 w-3.5" />
-                  )}
-                </button>
-
-                {/* Checkbox Visibilidad */}
-                <input 
-                  type="checkbox" 
-                  checked={showEventsLayer} 
-                  onChange={(e) => setShowEventsLayer(e.target.checked)}
-                  className="accent-orange-500 rounded cursor-pointer ml-1" 
-                />
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* 2. Header Lista */}
-      <div className={`px-4 py-3 border-b flex justify-between items-center ${
-        isDark ? 'border-zinc-800/40 bg-zinc-900/20' : 'border-amber-100 bg-amber-50/30'
-      } ${isCollapsed ? 'justify-center' : ''}`}>
-        {!isCollapsed ? (
+      {/* 2. Selector de Pestañas (Tabs) */}
+      <div className={`p-1.5 mx-3 mt-3 rounded-xl border flex space-x-1 text-xs font-bold ${
+        isDark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-amber-50/60 border-amber-100'
+      }`}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('stations')}
+          title="Ver Estaciones"
+          className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
+            activeTab === 'stations'
+              ? isDark
+                ? 'bg-zinc-800 text-orange-400 shadow'
+                : 'bg-white text-orange-600 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          <Radio className="h-3.5 w-3.5 shrink-0" />
+          {!isCollapsed && <span>Estaciones</span>}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('events')}
+          title="Ver Sismos"
+          className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
+            activeTab === 'events'
+              ? isDark
+                ? 'bg-zinc-800 text-orange-400 shadow'
+                : 'bg-white text-orange-600 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          {!isCollapsed && <span>Sismos</span>}
+        </button>
+      </div>
+
+      {/* 3. Contenido Dinámico de Pestañas */}
+      <div className="flex-1 overflow-hidden flex flex-col mt-2">
+        {activeTab === 'stations' ? (
+          /* TAB DE ESTACIONES */
           <>
-            <span className="text-xs font-bold text-zinc-500">ESTACIONES REGISTRADAS</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
-              {stations.length} total
-            </span>
-          </>
-        ) : (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
-            {stations.length}
-          </span>
-        )}
-      </div>
-
-      {/* 3. Lista de Estaciones */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
-        {stations.map((station) => {
-          const isSelected = selectedStation?.id === station.id;
-          const isActive = station.status === 'activa';
-          const isDeleting = deletingId === station.id;
-
-          return (
-            <div 
-              key={station.id ?? `${station.lat}-${station.lon}`}
-              title={isCollapsed ? `${station.name} (${station.status})` : ""}
-              className={`rounded-2xl border transition-all duration-300 relative group overflow-hidden ${
-                isCollapsed ? 'p-2 flex flex-col items-center justify-center' : 'p-3.5'
-              } ${
-                isSelected 
-                  ? isDark
-                    ? 'bg-gradient-to-r from-orange-950/40 to-zinc-900 border-orange-500/60 shadow-lg shadow-orange-500/10'
-                    : 'bg-gradient-to-r from-amber-100/60 to-orange-50/80 border-orange-400 shadow-md shadow-orange-500/10'
-                  : isDark
-                    ? 'bg-zinc-900/40 border-zinc-800/60 hover:border-zinc-700 hover:bg-zinc-900/70'
-                    : 'bg-white border-zinc-100 hover:border-amber-200 hover:bg-amber-50/30 shadow-sm'
-              }`}
-            >
-              {/* Indicador Lateral de Selección */}
-              {isSelected && (
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 via-orange-500 to-red-500 rounded-r-full" />
-              )}
-
-              {/* VISTA COLAPSADA */}
-              {isCollapsed ? (
-                <div className="flex flex-col items-center space-y-2 w-full">
-                  <button
-                    onClick={() => onSelectStation(station)}
-                    className="p-1.5 hover:bg-orange-500/20 text-orange-500 rounded-lg transition-colors"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
-                  <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
-                </div>
-              ) : (
-                /* VISTA EXPANDIDA COMPLETA */
+            <div className={`px-4 py-3 border-b flex justify-between items-center ${
+              isDark ? 'border-zinc-800/40 bg-zinc-900/20' : 'border-amber-100 bg-amber-50/30'
+            } ${isCollapsed ? 'justify-center' : ''}`}>
+              {!isCollapsed ? (
                 <>
-                  <div className="flex justify-between items-start mb-1.5">
-                    <div>
-                      <h3 className={`font-bold text-xs ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
-                        {station.name}
-                      </h3>
-                    </div>
-                    
-                    {/* Badge Status */}
-                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center space-x-1.5 ${
-                      isActive 
-                        ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
-                        : 'bg-red-500/15 text-red-500 border border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
-                      <span>{station.status}</span>
-                    </span>
-                  </div>
-
-                  <p className={`text-[11px] mb-3 font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                    {station.dept} • {station.lat}, {station.lon}
-                  </p>
-
-                  {/* Acciones */}
-                  <div className={`flex items-center justify-between pt-2 border-t ${isDark ? 'border-zinc-800/50' : 'border-zinc-100'}`}>
-                    <button 
-                      onClick={() => onSelectStation(station)}
-                      className="text-[11px] font-bold text-orange-500 hover:text-amber-500 flex items-center space-x-1 transition-colors group/btn"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span>Ver en mapa</span>
-                      <ChevronRight className="h-3 w-3 group-hover/btn:translate-x-0.5 transition-transform" />
-                    </button>
-
-                    <div className="flex items-center space-x-1">
-                      <button 
-                        onClick={() => onEditStation(station)}
-                        className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-amber-400' : 'hover:bg-amber-100/60 text-zinc-400 hover:text-orange-600'}`}
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                      </button>
-                      
-                      <button 
-                        disabled={isDeleting}
-                        onClick={() => handleDelete(station.id)}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-red-400' : 'hover:bg-red-50 text-zinc-400 hover:text-red-500'
-                        }`}
-                      >
-                        {isDeleting ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
+                  <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                    Estaciones Registradas
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                    {safeStations.length} total
+                  </span>
                 </>
+              ) : (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                  {safeStations.length}
+                </span>
               )}
             </div>
-          );
-        })}
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
+              {safeStations.map((station) => {
+                const isSelected = selectedStation?.id === station.id;
+                const isActive = station.status === 'activa';
+                const isDeleting = deletingId === station.id;
+
+                return (
+                  <div 
+                    key={station.id ?? `${station.lat}-${station.lon}`}
+                    title={isCollapsed ? `${station.name} (${station.status})` : ""}
+                    className={`rounded-2xl border transition-all duration-300 relative group overflow-hidden ${
+                      isCollapsed ? 'p-2 flex flex-col items-center justify-center' : 'p-3.5'
+                    } ${
+                      isSelected 
+                        ? isDark
+                          ? 'bg-gradient-to-r from-orange-950/40 to-zinc-900 border-orange-500/60 shadow-lg shadow-orange-500/10'
+                          : 'bg-gradient-to-r from-amber-100/60 to-orange-50/80 border-orange-400 shadow-md shadow-orange-500/10'
+                        : isDark
+                          ? 'bg-zinc-900/40 border-zinc-800/60 hover:border-zinc-700 hover:bg-zinc-900/70'
+                          : 'bg-white border-zinc-100 hover:border-amber-200 hover:bg-amber-50/30 shadow-sm'
+                    }`}
+                  >
+                    {isSelected && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 via-orange-500 to-red-500 rounded-r-full" />
+                    )}
+
+                    {isCollapsed ? (
+                      <div className="flex flex-col items-center space-y-2 w-full">
+                        <button
+                          type="button"
+                          onClick={() => onSelectStation && onSelectStation(station)}
+                          className="p-1.5 hover:bg-orange-500/20 text-orange-500 rounded-lg transition-colors"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-start mb-1.5">
+                          <div>
+                            <h3 className={`font-bold text-xs ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
+                              {station.name}
+                            </h3>
+                          </div>
+                          
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center space-x-1.5 ${
+                            isActive 
+                              ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                              : 'bg-red-500/15 text-red-500 border border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.2)]'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                            <span>{station.status}</span>
+                          </span>
+                        </div>
+
+                        <p className={`text-[11px] mb-3 font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          {station.dept} • {station.lat}, {station.lon}
+                        </p>
+
+                        <div className={`flex items-center justify-between pt-2 border-t ${isDark ? 'border-zinc-800/50' : 'border-zinc-100'}`}>
+                          <button 
+                            type="button"
+                            onClick={() => onSelectStation && onSelectStation(station)}
+                            className="text-[11px] font-bold text-orange-500 hover:text-amber-500 flex items-center space-x-1 transition-colors group/btn"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Ver en mapa</span>
+                            <ChevronRight className="h-3 w-3 group-hover/btn:translate-x-0.5 transition-transform" />
+                          </button>
+
+                          <div className="flex items-center space-x-1">
+                            <button 
+                              type="button"
+                              onClick={() => onEditStation && onEditStation(station)}
+                              title="Editar estación"
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                isDark 
+                                  ? 'hover:bg-zinc-800 text-zinc-400 hover:text-amber-400' 
+                                  : 'hover:bg-amber-100/60 text-zinc-400 hover:text-orange-600'
+                              }`}
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                            
+                            <button 
+                              type="button"
+                              disabled={isDeleting}
+                              onClick={() => handleDeleteStation(station.id)}
+                              title="Eliminar estación"
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-red-400' : 'hover:bg-red-50 text-zinc-400 hover:text-red-500'
+                              }`}
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-red-500" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          /* TAB DE SISMOS (COMPONENTE MODULAR) */
+          <SismosList
+            events={events}
+            selectedEvent={selectedEvent}
+            onSelectEvent={onSelectEvent}
+            onCreateEvent={onCreateEvent}
+            onEditEvent={onEditEvent} // 💡 Pasar prop a SismosList
+            onEventDeletedSuccess={onEventDeletedSuccess}
+            isDark={isDark}
+            isCollapsed={isCollapsed}
+          />
+        )}
       </div>
     </aside>
   );
