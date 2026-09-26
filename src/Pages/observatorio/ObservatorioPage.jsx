@@ -1,13 +1,15 @@
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 
 import { Navbar } from '../../components/Navbar';
-
 import { EventAnalyzer } from '../../components/observatorio/EventAnalyzer';
-
 import { EventQueue } from '../../components/observatorio/EventQueue';
-
 import { MetricBar } from '../../components/observatorio/MetricBar';
+import { ModoAutomaticoModal } from '../../components/modals/observatorio/ModoAutomaticoModal';
 
 import {
   descartarReporte,
@@ -15,15 +17,20 @@ import {
   validarYEmitirReporte,
 } from '../../services/colaReportesService';
 
+import {
+  iniciarModoAutomatico,
+  detenerModoAutomatico,
+} from '../../services/ModoAutoService';
+
 /**
- * Transforma la estructura de un reporte provisto por el backend al formato
- * uniforme consumido por los componentes visuales del observatorio.
+ * Transforma la estructura de un reporte provisto por el backend
+ * al formato uniforme consumido por los componentes visuales.
  *
- * @param {Object} reporte - Objeto de reporte sin procesar.
- * @param {number} index - Posición dentro del listado.
- * @returns {Object} Reporte adaptado con propiedades formateadas.
+ * IMPORTANTE:
+ * El id NO utiliza el index, porque el index cambia
+ * cuando un reporte sale de la cola.
  */
-const adaptarReporte = (reporte, index) => {
+const adaptarReporte = (reporte) => {
   const urgency =
     reporte.magnitude >= 5
       ? 'high'
@@ -32,7 +39,7 @@ const adaptarReporte = (reporte, index) => {
       : 'low';
 
   return {
-    id: `SISMO-${reporte.sismo_id}-${index}`,
+    id: `SISMO-${reporte.sismo_id}-${reporte.station_id}-${reporte.revision}`,
 
     sismo_id: reporte.sismo_id,
 
@@ -54,7 +61,9 @@ const adaptarReporte = (reporte, index) => {
 
     location: `Epicentro: ${reporte.epicenter_y}, ${reporte.epicenter_x}`,
 
-    timestamp: new Date(reporte.timestamp).toLocaleTimeString(),
+    timestamp: new Date(
+      reporte.timestamp
+    ).toLocaleTimeString(),
 
     epicenter_x: reporte.epicenter_x,
 
@@ -67,10 +76,13 @@ const adaptarReporte = (reporte, index) => {
 };
 
 /**
- * Convierte las decisiones internas del backend en mensajes
- * comprensibles para el usuario.
+ * Convierte las decisiones internas del backend
+ * en mensajes comprensibles para el usuario.
  */
-const obtenerMensajeDecision = (decision, detalle) => {
+const obtenerMensajeDecision = (
+  decision,
+  detalle
+) => {
   switch (decision) {
     case 'correccion':
       return {
@@ -128,60 +140,102 @@ const obtenerMensajeDecision = (decision, detalle) => {
   }
 };
 
-/**
- * Vista principal del Observatorio Sísmico para el monitoreo, evaluación
- * y aprobación/descarte en tiempo real de eventos en cola.
- */
 export const ObservatorioPage = () => {
-  // --- Estados de Configuración y Tema Visual ---
+  // ---------------------------------------------------------
+  // CONFIGURACIÓN Y TEMA
+  // ---------------------------------------------------------
+
   const [theme, setTheme] = useState('dark');
 
-  const [stressMode, setStressMode] = useState(false);
+  const [stressMode, setStressMode] =
+    useState(false);
 
-  // --- Estados de Datos de Eventos ---
-  const [pendingEvents, setPendingEvents] = useState([]);
+  // ---------------------------------------------------------
+  // DATOS DE EVENTOS
+  // ---------------------------------------------------------
 
-  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [pendingEvents, setPendingEvents] =
+    useState([]);
 
-  const [decision, setDecision] = useState(null);
+  const [selectedEvent, setSelectedEvent] =
+    useState(null);
 
-  // --- Estados de Control de Carga y Operación ---
-  const [loading, setLoading] = useState(true);
+  const [decision, setDecision] =
+    useState(null);
 
-  const [processing, setProcessing] = useState(false);
+  // ---------------------------------------------------------
+  // ESTADOS DE OPERACIÓN
+  // ---------------------------------------------------------
 
-  const [error, setError] = useState(null);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [processing, setProcessing] =
+    useState(false);
+
+  const [error, setError] =
+    useState(null);
+
+  // ---------------------------------------------------------
+  // MODO AUTOMÁTICO
+  // ---------------------------------------------------------
+
+  const [modoAutomatico, setModoAutomatico] =
+    useState(false);
+
+  const [
+    mostrarModalAutomatico,
+    setMostrarModalAutomatico,
+  ] = useState(false);
+
+  const [
+    intervaloAutomatico,
+    setIntervaloAutomatico,
+  ] = useState(3);
 
   const isDark = theme === 'dark';
 
+  // ---------------------------------------------------------
+  // CARGAR COLA
+  // ---------------------------------------------------------
+
   /**
-   * Consulta el servicio de API para sincronizar la cola de eventos pendientes.
+   * Carga la cola desde el backend.
    *
-   * @param {boolean} seleccionarPrimero
-   * Define si después de cargar la cola se debe seleccionar
-   * automáticamente el primer reporte.
+   * seleccionarPrimero:
+   * - true  -> selecciona el primer reporte.
+   * - false -> solamente actualiza la lista.
+   *
+   * mostrarLoading:
+   * - true  -> muestra el overlay inicial.
+   * - false -> actualiza silenciosamente.
    */
   const cargarCola = useCallback(
-    async (seleccionarPrimero = true) => {
+    async (
+      seleccionarPrimero = true,
+      mostrarLoading = true
+    ) => {
       try {
-        setLoading(true);
+        if (mostrarLoading) {
+          setLoading(true);
+        }
 
         setError(null);
 
-        const cola = await obtenerColaReportes();
+        const cola =
+          await obtenerColaReportes();
 
-        const eventosAdaptados = cola.map(adaptarReporte);
+        const eventosAdaptados =
+          cola.map(adaptarReporte);
 
-        setPendingEvents(eventosAdaptados);
+        setPendingEvents(
+          eventosAdaptados
+        );
 
-        /*
-         * Al cargar inicialmente queremos seleccionar el primer evento.
-         *
-         * Después de procesar un reporte NO queremos seleccionar
-         * automáticamente otro.
-         */
         if (seleccionarPrimero) {
-          setSelectedEvent(eventosAdaptados[0] || null);
+          setSelectedEvent(
+            eventosAdaptados[0] || null
+          );
         }
       } catch (err) {
         console.error(
@@ -194,54 +248,64 @@ export const ObservatorioPage = () => {
             'No se pudo cargar la cola de reportes.'
         );
       } finally {
-        setLoading(false);
+        if (mostrarLoading) {
+          setLoading(false);
+        }
       }
     },
     []
   );
 
-  // Carga inicial al montar el componente
+  // ---------------------------------------------------------
+  // CARGA INICIAL
+  // ---------------------------------------------------------
+
   useEffect(() => {
     cargarCola(true);
   }, [cargarCola]);
 
-  /**
-   * Ejecuta la desestimación del reporte seleccionado.
-   */
+  // ---------------------------------------------------------
+  // RECHAZAR REPORTE
+  // ---------------------------------------------------------
+
   const handleReject = async () => {
-    if (!selectedEvent || processing) return;
+    if (!selectedEvent || processing) {
+      return;
+    }
 
     try {
       setProcessing(true);
-
       setDecision(null);
-
       setError(null);
 
-      const resultado = await descartarReporte();
+      const resultado =
+        await descartarReporte();
 
-      const decisionFormateada = obtenerMensajeDecision(
-        resultado.decision || 'ruido',
-        resultado.detalle_decision || resultado.mensaje
-      );
+      const decisionFormateada =
+        obtenerMensajeDecision(
+          resultado.decision || 'ruido',
+          resultado.detalle_decision ||
+            resultado.mensaje
+        );
 
       setDecision({
-        tipo: resultado.decision || 'ruido',
-        titulo: decisionFormateada.titulo,
-        mensaje: decisionFormateada.mensaje,
-        tipoVisual: decisionFormateada.tipo,
+        tipo:
+          resultado.decision || 'ruido',
+
+        titulo:
+          decisionFormateada.titulo,
+
+        mensaje:
+          decisionFormateada.mensaje,
+
+        tipoVisual:
+          decisionFormateada.tipo,
       });
 
-      /*
-       * El reporte acaba de salir de la cola.
-       * Lo quitamos inmediatamente del analizador.
-       */
       setSelectedEvent(null);
 
-      /*
-       * Recargamos la cola pero NO seleccionamos otro evento.
-       */
-      await cargarCola(false);
+      // Actualizamos la cola sin overlay
+      await cargarCola(false, false);
     } catch (err) {
       console.error(
         'Error al descartar el reporte:',
@@ -257,58 +321,55 @@ export const ObservatorioPage = () => {
     }
   };
 
-  /**
-   * Procesa la aprobación y emisión oficial del reporte seleccionado.
-   */
+  // ---------------------------------------------------------
+  // APROBAR / EMITIR REPORTE
+  // ---------------------------------------------------------
+
   const handleApprove = async () => {
-    if (!selectedEvent || processing) return;
+    if (!selectedEvent || processing) {
+      return;
+    }
 
     try {
       setProcessing(true);
-
       setDecision(null);
-
       setError(null);
 
-      const resultado = await validarYEmitirReporte();
+      const resultado =
+        await validarYEmitirReporte();
 
-      const decisionFormateada = obtenerMensajeDecision(
-        resultado.decision,
-        resultado.detalle_decision || resultado.mensaje
-      );
+      const decisionFormateada =
+        obtenerMensajeDecision(
+          resultado.decision,
+          resultado.detalle_decision ||
+            resultado.mensaje
+        );
 
       setDecision({
         tipo: resultado.decision,
-        titulo: decisionFormateada.titulo,
-        mensaje: decisionFormateada.mensaje,
-        tipoVisual: decisionFormateada.tipo,
+
+        titulo:
+          decisionFormateada.titulo,
+
+        mensaje:
+          decisionFormateada.mensaje,
+
+        tipoVisual:
+          decisionFormateada.tipo,
       });
 
-      /*
-       * El reporte ya fue procesado y eliminado de la cola.
-       * No debe continuar apareciendo en el analizador.
-       */
       setSelectedEvent(null);
 
-      /*
-       * Actualizamos la cola sin seleccionar automáticamente
-       * otro reporte.
-       */
-      await cargarCola(false);
+      // Actualizamos la cola sin overlay
+      await cargarCola(false, false);
     } catch (err) {
       console.error(
         'Error al emitir el reporte:',
         err
       );
 
-      /*
-       * Los 409 de negocio también son decisiones válidas:
-       *
-       * - reporte_antiguo
-       * - conflicto
-       *
-       * En estos casos NO mostramos la alerta de error.
-       */
+      // Las decisiones de negocio
+      // no se consideran errores técnicos.
       if (err.decision) {
         const decisionFormateada =
           obtenerMensajeDecision(
@@ -320,34 +381,23 @@ export const ObservatorioPage = () => {
 
         setDecision({
           tipo: err.decision,
-          titulo: decisionFormateada.titulo,
-          mensaje: decisionFormateada.mensaje,
-          tipoVisual: decisionFormateada.tipo,
+
+          titulo:
+            decisionFormateada.titulo,
+
+          mensaje:
+            decisionFormateada.mensaje,
+
+          tipoVisual:
+            decisionFormateada.tipo,
         });
 
-        /*
-         * MUY IMPORTANTE:
-         * Un 409 de negocio no debe aparecer
-         * como "Error de operación".
-         */
         setError(null);
 
-        /*
-         * El backend ya retiró el reporte rechazado
-         * de la cola.
-         */
         setSelectedEvent(null);
 
-        /*
-         * Actualizamos la cola sin seleccionar
-         * automáticamente otro reporte.
-         */
-        await cargarCola(false);
+        await cargarCola(false, false);
       } else {
-        /*
-         * Solo errores técnicos reales llegan aquí:
-         * conexión, 500, backend caído, etc.
-         */
         setError(
           err.message ||
             'Ocurrió un error al emitir el reporte.'
@@ -358,6 +408,264 @@ export const ObservatorioPage = () => {
     }
   };
 
+  // ---------------------------------------------------------
+  // PROCESAMIENTO AUTOMÁTICO
+  // ---------------------------------------------------------
+
+  const procesarAutomaticamente =
+    useCallback(async () => {
+      /**
+       * Evitamos que dos ejecuciones del intervalo
+       * procesen simultáneamente.
+       */
+      if (processing) {
+        return;
+      }
+
+      try {
+        setProcessing(true);
+        setDecision(null);
+        setError(null);
+
+        // ---------------------------------------------------
+        // 1. Consultar cola actual
+        // ---------------------------------------------------
+
+        const cola =
+          await obtenerColaReportes();
+
+        // ---------------------------------------------------
+        // 2. Si no hay reportes
+        // ---------------------------------------------------
+
+        if (!cola || cola.length === 0) {
+          setPendingEvents([]);
+          setSelectedEvent(null);
+          return;
+        }
+
+        // ---------------------------------------------------
+        // 3. Adaptar cola
+        // ---------------------------------------------------
+
+        const eventosAdaptados =
+          cola.map(adaptarReporte);
+
+        setPendingEvents(
+          eventosAdaptados
+        );
+
+        // ---------------------------------------------------
+        // 4. Seleccionar primer reporte
+        // ---------------------------------------------------
+
+        const primerReporte =
+          eventosAdaptados[0];
+
+        setSelectedEvent(
+          primerReporte
+        );
+
+        // ---------------------------------------------------
+        // 5. Procesar primer reporte
+        // ---------------------------------------------------
+
+        const resultado =
+          await validarYEmitirReporte();
+
+        // ---------------------------------------------------
+        // 6. Mostrar decisión
+        // ---------------------------------------------------
+
+        const decisionFormateada =
+          obtenerMensajeDecision(
+            resultado.decision,
+            resultado.detalle_decision ||
+              resultado.mensaje
+          );
+
+        setDecision({
+          tipo: resultado.decision,
+
+          titulo:
+            decisionFormateada.titulo,
+
+          mensaje:
+            decisionFormateada.mensaje,
+
+          tipoVisual:
+            decisionFormateada.tipo,
+        });
+
+        // ---------------------------------------------------
+        // 7. Consultar nuevamente la cola
+        // ---------------------------------------------------
+
+        const nuevaCola =
+          await obtenerColaReportes();
+
+        const nuevosEventos =
+          nuevaCola.map(adaptarReporte);
+
+        // ---------------------------------------------------
+        // 8. Actualizar lista
+        // ---------------------------------------------------
+
+        setPendingEvents(
+          nuevosEventos
+        );
+
+        // ---------------------------------------------------
+        // 9. Seleccionar siguiente reporte
+        // ---------------------------------------------------
+
+        setSelectedEvent(
+          nuevosEventos[0] || null
+        );
+      } catch (err) {
+        /**
+         * Algunas decisiones del backend representan
+         * decisiones normales del negocio:
+         *
+         * - reporte_antiguo
+         * - conflicto
+         * - ruido
+         *
+         * Por eso no las mostramos como errores técnicos.
+         */
+        if (err.decision) {
+          const decisionFormateada =
+            obtenerMensajeDecision(
+              err.decision,
+              err.detalle_decision ||
+                err.mensaje ||
+                err.message
+            );
+
+          setDecision({
+            tipo: err.decision,
+
+            titulo:
+              decisionFormateada.titulo,
+
+            mensaje:
+              decisionFormateada.mensaje,
+
+            tipoVisual:
+              decisionFormateada.tipo,
+          });
+
+          setError(null);
+
+          // Actualizar cola después de la decisión
+          try {
+            const nuevaCola =
+              await obtenerColaReportes();
+
+            const nuevosEventos =
+              nuevaCola.map(adaptarReporte);
+
+            setPendingEvents(
+              nuevosEventos
+            );
+
+            setSelectedEvent(
+              nuevosEventos[0] || null
+            );
+          } catch (refreshError) {
+            console.error(
+              'Error actualizando cola:',
+              refreshError
+            );
+          }
+        } else {
+          console.error(
+            'Error en procesamiento automático:',
+            err
+          );
+
+          setError(
+            err.message ||
+              'Error durante el procesamiento automático.'
+          );
+        }
+      } finally {
+        setProcessing(false);
+      }
+    }, [processing]);
+
+  // ---------------------------------------------------------
+  // ACTIVAR MODO AUTOMÁTICO
+  // ---------------------------------------------------------
+
+  const activarModoAutomatico =
+    useCallback(
+      (segundos) => {
+        try {
+          // Detener cualquier intervalo anterior
+          detenerModoAutomatico();
+
+          setIntervaloAutomatico(
+            segundos
+          );
+
+          setModoAutomatico(true);
+
+          setMostrarModalAutomatico(
+            false
+          );
+
+          /**
+           * IMPORTANTE:
+           * El servicio recibe primero
+           * el intervalo y después el callback.
+           */
+          iniciarModoAutomatico(
+            segundos,
+            procesarAutomaticamente
+          );
+        } catch (err) {
+          console.error(
+            'Error activando modo automático:',
+            err
+          );
+
+          setError(
+            err.message ||
+              'No se pudo activar el modo automático.'
+          );
+        }
+      },
+      [procesarAutomaticamente]
+    );
+
+  // ---------------------------------------------------------
+  // DETENER MODO AUTOMÁTICO
+  // ---------------------------------------------------------
+
+  const desactivarModoAutomatico =
+    useCallback(() => {
+      detenerModoAutomatico();
+
+      setModoAutomatico(false);
+
+      setProcessing(false);
+    }, []);
+
+  // ---------------------------------------------------------
+  // LIMPIAR INTERVALO AL SALIR
+  // ---------------------------------------------------------
+
+  useEffect(() => {
+    return () => {
+      detenerModoAutomatico();
+    };
+  }, []);
+
+  // ---------------------------------------------------------
+  // RENDER
+  // ---------------------------------------------------------
+
   return (
     <div
       className={`h-screen w-screen flex flex-col overflow-hidden font-sans transition-colors duration-500 select-none ${
@@ -367,30 +675,45 @@ export const ObservatorioPage = () => {
       }`}
     >
       {/* Navegación Superior */}
+
       <Navbar
         theme={theme}
         onToggleTheme={() =>
-          setTheme(isDark ? 'light' : 'dark')
+          setTheme(
+            isDark ? 'light' : 'dark'
+          )
         }
       />
 
       {/* Barra de Métricas Globales */}
+
       <MetricBar
         isDark={isDark}
         networkStatus="OPERATIVA (98%)"
         todayEventsCount={14}
-        pendingCount={pendingEvents.length}
+        pendingCount={
+          pendingEvents.length
+        }
       />
 
-      {/* Área Principal de Trabajo */}
-      <div className="flex flex-1 relative overflow-hidden">
+      {/* Área Principal */}
 
-        {/* Listado / Cola Lateral */}
+      <div className="flex flex-1 relative overflow-hidden">
+        {/* Cola */}
+
         <EventQueue
           events={pendingEvents}
           selectedEvent={selectedEvent}
           isDark={isDark}
           onSelectEvent={(event) => {
+            /**
+             * No permitimos selección manual
+             * mientras el modo automático está activo.
+             */
+            if (modoAutomatico) {
+              return;
+            }
+
             setSelectedEvent(event);
             setDecision(null);
             setError(null);
@@ -398,16 +721,59 @@ export const ObservatorioPage = () => {
           stressMode={stressMode}
         />
 
-        {/* Panel Central de Análisis */}
-        <div className="flex-1 relative flex flex-col overflow-hidden">
+        {/* Panel Central */}
 
-          {/* Botón Flotante para Conmutar Modo Estrés */}
-          <div className="absolute top-4 right-4 z-30">
+        <div className="flex-1 relative flex flex-col overflow-hidden">
+          {/* Botones superiores */}
+
+          <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+            {/* MODO AUTOMÁTICO */}
+
+            {!modoAutomatico ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setMostrarModalAutomatico(
+                    true
+                  )
+                }
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border shadow-sm flex items-center gap-2 ${
+                  isDark
+                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+
+                Modo Automático
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={
+                  desactivarModoAutomatico
+                }
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border shadow-sm flex items-center gap-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/40"
+              >
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+
+                Automático ·{' '}
+                {intervaloAutomatico}s
+
+                <span className="ml-1 opacity-70">
+                  Detener
+                </span>
+              </button>
+            )}
+
+            {/* MODO ESTRÉS */}
 
             <button
               type="button"
               onClick={() =>
-                setStressMode((prev) => !prev)
+                setStressMode(
+                  (prev) => !prev
+                )
               }
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border shadow-sm flex items-center gap-2 ${
                 stressMode
@@ -429,8 +795,9 @@ export const ObservatorioPage = () => {
                 ? 'Desactivar Modo Estrés'
                 : 'Modo Estrés'}
             </button>
-
           </div>
+
+          {/* Analizador */}
 
           <EventAnalyzer
             event={selectedEvent}
@@ -440,59 +807,39 @@ export const ObservatorioPage = () => {
             processing={processing}
             decision={decision}
           />
-
         </div>
 
-        {/* Overlays de Estado */}
+        {/* Overlay de carga */}
 
         {loading && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-md transition-all">
-
             <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mb-3" />
 
             <p className="text-xs font-medium tracking-wide text-zinc-200">
               Sincronizando cola de reportes...
             </p>
-
           </div>
         )}
+
+        {/* Overlay de procesamiento */}
 
         {processing && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm transition-all">
-
             <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3" />
 
             <p className="text-xs font-medium tracking-wide text-zinc-200">
-              Procesando y emitiendo evento...
+              {modoAutomatico
+                ? 'Procesando reporte automáticamente...'
+                : 'Procesando y emitiendo evento...'}
             </p>
-
           </div>
         )}
 
-        {/* 
-         * IMPORTANTE:
-         *
-         * Ya NO mostramos aquí el resultado de la operación.
-         *
-         * EventAnalyzer recibe "decision" y se encarga de
-         * mostrar todos los casos:
-         *
-         * - correccion
-         * - confirmacion
-         * - reporte_antiguo
-         * - conflicto
-         * - ruido
-         *
-         * Esto evita que el resultado aparezca como una alerta
-         * en la parte inferior.
-         */}
-
         {/* Error técnico */}
+
         {error && !loading && (
           <div className="absolute bottom-6 right-6 z-50 max-w-md animate-bounce-short">
-
             <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-950/90 border border-rose-700/60 text-rose-200 shadow-2xl backdrop-blur-md">
-
               <svg
                 className="w-5 h-5 text-rose-400 shrink-0 mt-0.5"
                 fill="none"
@@ -508,7 +855,6 @@ export const ObservatorioPage = () => {
               </svg>
 
               <div className="flex-1 text-xs">
-
                 <h4 className="font-bold text-rose-300 mb-0.5">
                   Error de operación
                 </h4>
@@ -516,24 +862,41 @@ export const ObservatorioPage = () => {
                 <p className="opacity-90 leading-relaxed">
                   {error}
                 </p>
-
               </div>
 
               <button
                 type="button"
-                onClick={() => setError(null)}
+                onClick={() =>
+                  setError(null)
+                }
                 className="text-rose-400 hover:text-white p-1 rounded-md transition-colors"
               >
                 ✕
               </button>
-
             </div>
-
           </div>
         )}
-
       </div>
+
+      {/* =====================================================
+          MODAL MODO AUTOMÁTICO
+          ===================================================== */}
+
+      <ModoAutomaticoModal
+        isDark={isDark}
+        abierto={mostrarModalAutomatico}
+        intervaloActual={
+          intervaloAutomatico
+        }
+        onClose={() =>
+          setMostrarModalAutomatico(
+            false
+          )
+        }
+        onActivar={
+          activarModoAutomatico
+        }
+      />
     </div>
   );
 };
-
