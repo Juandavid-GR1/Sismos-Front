@@ -136,7 +136,7 @@ export const Navbar = ({
         }`}>
           {/* Botón Reportes */}
           <Link
-            to="/observatorio/reportes"
+            to="/observatorio "
             className={`relative flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
               isReportes
                 ? isDark
