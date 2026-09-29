@@ -7,9 +7,12 @@ import {
   Plus,
   Activity,
   Calendar,
-  Edit3
+  Edit3,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 import { sismosService } from '../../services/SismosServices';
+import { notificarCambioDeEstado } from '../../services/historialService';
 
 export const SismosList = ({
   events = [],
@@ -22,6 +25,24 @@ export const SismosList = ({
   isCollapsed
 }) => {
   const [deletingId, setDeletingId] = useState(null);
+  const [reviewingId, setReviewingId] = useState(null);
+
+  // Section 6: mark as reviewed. Does not change the key K (no
+  // reinsertion) and is recorded as an undoable action.
+  const handleMarcarRevisado = async (id, e) => {
+    e.stopPropagation();
+    const numericId = typeof id === 'string' ? parseInt(id.replace(/\D/g, ''), 10) : id;
+    if (!numericId || isNaN(numericId)) return;
+    try {
+      setReviewingId(id);
+      await sismosService.marcarRevisado(numericId);
+      notificarCambioDeEstado();      // pages reload their data
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo marcar como revisado');
+    } finally {
+      setReviewingId(null);
+    }
+  };
 
   // Asegurar que events sea un arreglo
   const safeEvents = Array.isArray(events) ? events.filter(Boolean) : [];
@@ -179,6 +200,19 @@ export const SismosList = ({
                         <h3 className={`font-bold text-xs ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
                           {String(location)}
                         </h3>
+                        {/* Attention status: Pendiente / Revisado */}
+                        {sismo.status && (
+                          <span
+                            className={`mt-1 inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${
+                              sismo.status === 'Revisado'
+                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                                : 'bg-sky-500/10 text-sky-500 border-sky-500/30'
+                            }`}
+                          >
+                            {sismo.status === 'Revisado' ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+                            {sismo.status}
+                          </span>
+                        )}
                       </div>
 
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase tracking-wider flex items-center space-x-1 shrink-0 ${getMagnitudeBadge(sismo.magnitude)}`}>
@@ -207,6 +241,27 @@ export const SismosList = ({
                       </span>
 
                       <div className="flex items-center space-x-1">
+                        {/* Mark as reviewed (only while pending) */}
+                        {sismo.status !== 'Revisado' && (
+                          <button
+                            type="button"
+                            disabled={reviewingId === (sismo.id ?? rawId)}
+                            onClick={(e) => handleMarcarRevisado(sismo.id ?? rawId, e)}
+                            title="Marcar como revisado"
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              isDark
+                                ? 'hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400'
+                                : 'hover:bg-emerald-50 text-zinc-400 hover:text-emerald-600'
+                            }`}
+                          >
+                            {reviewingId === (sismo.id ?? rawId) ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                            ) : (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
+
                         {/* Botón Editar Vinculado */}
                         <button 
                           type="button"

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useNavbar } from '../hooks/useNavbar';
 import { ThemeToggle } from './buttons/ThemeToggle';
+import { UndoButton } from './buttons/UndoButton';
 
 export const Navbar = ({
   theme,
@@ -189,6 +190,8 @@ export const Navbar = ({
 
       {/* 3. ACCIONES Y ACCESOS DEL USUARIO */}
       <div className="flex items-center space-x-3">
+        {/* Undo stack (section 13): available on every page */}
+        <UndoButton isDark={isDark} />
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
 
         {/* Botón de Creación Acción Primaria */}

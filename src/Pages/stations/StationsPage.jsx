@@ -21,6 +21,7 @@ import { EditSismoModal } from '../../components/modals/EditSismoModal';
 
 // Hooks y Servicios
 import { useSimulationClock } from '../../hooks/SimulationClock';
+import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
 import { estacionesService } from '../../services/StationsServices';
 import { sismosService } from '../../services/SismosServices';
 import { obtenerZonas } from '../../services/ZonasServices';
@@ -74,12 +75,17 @@ export const EstacionesPage = () => {
   // ============================================================
   // CARGAR DATOS DESDE EL BACKEND
   // ============================================================
+  // Reload counter: increases when the scenario changes elsewhere
+  // (undo, mark as reviewed) so the list and the map are refreshed.
+  const [recarga, setRecarga] = useState(0);
+  useEstadoCambiado(() => setRecarga((n) => n + 1));
+
   useEffect(() => {
     let isMounted = true;
 
     const fetchData = async () => {
       try {
-        setLoading(true);
+        if (recarga === 0) setLoading(true);
 
         const [stationsData, eventsData, zonesData] = await Promise.all([
           estacionesService.getAll(),
@@ -108,7 +114,7 @@ export const EstacionesPage = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [recarga]);
 
   // ============================================================
   // CALLBACKS DE ESTACIONES

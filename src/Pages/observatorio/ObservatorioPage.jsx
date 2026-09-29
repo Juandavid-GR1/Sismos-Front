@@ -6,6 +6,7 @@ import React, {
 } from 'react';
 
 import { Navbar } from '../../components/Navbar';
+import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
 import { EventAnalyzer } from '../../components/observatorio/EventAnalyzer';
 import { EventQueue } from '../../components/observatorio/EventQueue';
 import { MetricBar } from '../../components/observatorio/MetricBar';
@@ -315,6 +316,9 @@ export const ObservatorioPage = () => {
   useEffect(() => {
     cargarCola(true);
   }, [cargarCola]);
+
+  // Undo can put a report back in the queue: reload it silently.
+  useEstadoCambiado(() => cargarCola(true, false));
 
   // ---------------------------------------------------------
   // COLA FIFO: solo se puede procesar el reporte del FRENTE

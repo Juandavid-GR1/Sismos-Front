@@ -29,6 +29,7 @@ import {
 
 // Importación del Navbar Centralizado
 import { Navbar } from '../../components/Navbar';
+import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
 
 // ============================================================
 // API CONNECTION: same backend as the rest of the app (VITE_API_URL in
@@ -297,6 +298,9 @@ export const ArbolesPage = () => {
   useEffect(() => {
     loadTreeState();
   }, [loadTreeState]);
+
+  // Undo restores the exact previous topology: redraw it.
+  useEstadoCambiado(loadTreeState);
 
   const refreshTree = useCallback(() => {
     loadTreeState();

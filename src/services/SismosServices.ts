@@ -79,6 +79,17 @@ export const sismosService = {
     return response.json();
   },
 
+  // PATCH: mark an active event as reviewed. Same key, no
+  // reinsertion; undoable from the "Deshacer" button.
+  marcarRevisado: async (id: number) => {
+    const response = await fetch(`${ENDPOINT}/${id}/audit`, { method: 'PATCH' });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || data?.error || `No se pudo marcar el sismo #${id} como revisado`);
+    }
+    return data;
+  },
+
   // DELETE: Eliminar un sismo por su ID
   delete: async (id: number): Promise<void> => {
     const response = await fetch(`${ENDPOINT}/${id}`, {
