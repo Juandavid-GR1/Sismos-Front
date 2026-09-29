@@ -72,6 +72,9 @@ const MetricItem = ({ icon: Icon, label, value, isDark, highlight }) => (
 const ESPACIO_HORIZONTAL = 90;
 const ESPACIO_VERTICAL = 110;
 const RADIO_NODO = 28;
+// Empty space around the drawing so the first/last node and the root are
+// never cut in half by the edge of the viewBox.
+const MARGEN = RADIO_NODO + 22;
 
 /**
  * Recorre la topología (recursiva, hijoIzquierdo/hijoDerecho anidados)
@@ -88,8 +91,8 @@ function calcularPosiciones(nodo, profundidad, contador, resultado) {
 
   calcularPosiciones(nodo.hijoIzquierdo, profundidad + 1, contador, resultado);
 
-  const x = contador.valor * ESPACIO_HORIZONTAL;
-  const y = profundidad * ESPACIO_VERTICAL + 50;
+  const x = MARGEN + contador.valor * ESPACIO_HORIZONTAL;
+  const y = MARGEN + profundidad * ESPACIO_VERTICAL;
   contador.valor += 1;
 
   resultado.push({
@@ -136,8 +139,9 @@ function construirGrafo(raiz) {
     }
   });
 
-  const ancho = nodos.length > 0 ? Math.max(...nodos.map((n) => n.x)) + ESPACIO_HORIZONTAL : 400;
-  const alto = nodos.length > 0 ? Math.max(...nodos.map((n) => n.y)) + ESPACIO_VERTICAL : 300;
+  // Real size of the drawing (plus margin on every side)
+  const ancho = nodos.length > 0 ? Math.max(...nodos.map((n) => n.x)) + MARGEN : 400;
+  const alto = nodos.length > 0 ? Math.max(...nodos.map((n) => n.y)) + MARGEN : 300;
 
   return { nodos, enlaces, ancho, alto };
 }
@@ -157,9 +161,15 @@ const DynamicTreeSVG = ({ topologia, isDark }) => {
   }
 
   return (
+    // Natural pixel size: a small tree is NOT blown up to fill the whole
+    // panel (that made a single node gigantic and cut in half); a big tree
+    // shrinks to fit thanks to max-width / max-height.
     <svg
-      className="w-full h-full min-h-[420px]"
+      width={ancho}
+      height={alto}
       viewBox={`0 0 ${ancho} ${alto}`}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ maxWidth: '100%', maxHeight: '100%', height: 'auto' }}
     >
       <defs>
         <linearGradient id="treeLineGrad" x1="0%" y1="0%" x2="0%" y2="100%">
