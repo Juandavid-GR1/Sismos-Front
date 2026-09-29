@@ -22,7 +22,7 @@ export const Navbar = ({
   onSearchChange
 }) => {
   const isDark = theme === 'dark';
-  const { isObservatorio, isEstaciones, isReportes, isArboles } = useNavbar();
+  const { isObservatorio, isEstaciones, isReportes, isArboles, isConsultar } = useNavbar();
 
   return (
     <header
@@ -127,7 +127,7 @@ export const Navbar = ({
         </div>
       )}
 
-      {/* Opción B: Modo Observatorio -> Sub-Navbar Animado (Reportes vs Árboles) */}
+      {/* Opción B: Modo Observatorio -> Sub-Navbar Animado (Reportes vs Árboles vs Consultar) */}
       {isObservatorio && (
         <div className={`flex items-center p-1 rounded-2xl border transition-all duration-300 ${
           isDark 
@@ -136,7 +136,7 @@ export const Navbar = ({
         }`}>
           {/* Botón Reportes */}
           <Link
-            to="/observatorio "
+            to="/observatorio"
             className={`relative flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
               isReportes
                 ? isDark
@@ -166,6 +166,23 @@ export const Navbar = ({
           >
             <GitFork className={`w-3.5 h-3.5 transition-transform duration-300 ${isArboles ? 'rotate-[90deg]' : ''}`} />
             <span>Árboles</span>
+          </Link>
+
+          {/* Botón Consultar (sección 6: localizar un evento por identificador) */}
+          <Link
+            to="/observatorio/consultar"
+            className={`relative flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
+              isConsultar
+                ? isDark
+                  ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-500/25 scale-[1.02]'
+                  : 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-500/20 scale-[1.02]'
+                : isDark
+                  ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50'
+            }`}
+          >
+            <Search className={`w-3.5 h-3.5 transition-transform duration-300 ${isConsultar ? 'scale-110' : ''}`} />
+            <span>Consultar</span>
           </Link>
         </div>
       )}

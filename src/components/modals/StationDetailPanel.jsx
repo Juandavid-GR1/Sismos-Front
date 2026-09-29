@@ -9,18 +9,16 @@ import {
   CheckCircle2,
   AlertCircle,
   Activity,
-  Layers
+  Layers,
+  Plus,
+  Info
 } from 'lucide-react';
 
 import { sismosService } from '../../services/SismosServices';
+import { EventoDetalleModal } from './EventoDetalleModal';
 
 /**
  * Extrae y normaliza el identificador numérico de un objeto de sismo.
- *
- * @param {Object} sismo - Objeto que representa el evento sísmico.
- * @param {number|string} [sismo.numericId] - ID numérico explícito.
- * @param {number|string} sismo.id - Identificador único principal.
- * @returns {number} ID numérico del sismo.
  */
 const getSismoNumericId = (sismo) => {
   if (sismo.numericId) return Number(sismo.numericId);
@@ -33,20 +31,29 @@ const getSismoNumericId = (sismo) => {
 };
 
 /**
+ * Valor por defecto para el campo timestamp del formulario -- se
+ * ajusta a la hora local en formato compatible con <input type="datetime-local">.
+ */
+const timestampPorDefecto = () => {
+  const ahora = new Date();
+  ahora.setSeconds(0, 0);
+  const offset = ahora.getTimezoneOffset() * 60000;
+  return new Date(ahora - offset).toISOString().slice(0, 16);
+};
+
+const FORMULARIO_NUEVO_VACIO = {
+  sismo_id: '',
+  magnitude: '',
+  depth: '',
+  epicenter_x: '',
+  epicenter_y: '',
+  timestamp: timestampPorDefecto(),
+  revision: '1'
+};
+
+/**
  * Panel lateral para la visualización de métricas de una estación sísmica
  * y gestión de la emisión de reportes con asignación manual de revisión.
- *
- * @param {Object} props
- * @param {Object} props.station - Datos de la estación seleccionada.
- * @param {string} props.station.id - ID único de la estación.
- * @param {string} props.station.name - Nombre de la estación.
- * @param {string} props.station.status - Estado operativo ('activa', etc.).
- * @param {number|string} props.station.lat - Latitud geográfica.
- * @param {number|string} props.station.lon - Longitud geográfica.
- * @param {number|string} props.station.coverage - Cobertura en kilómetros.
- * @param {string} [props.station.dept] - Departamento o región.
- * @param {'dark'|'light'} props.theme - Tema visual activo.
- * @param {Function} props.onClose - Callback para cerrar el panel.
  */
 export const StationDetailPanel = ({ station, theme, onClose }) => {
   // Estados de datos y carga
@@ -55,9 +62,19 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
   const [reportingId, setReportingId] = useState(null);
   const [reportMessage, setReportMessage] = useState(null);
 
-  // Estados para la gestión del formulario de reporte
+  // Estados para la gestión del formulario de reporte (sismo existente)
   const [sismoParaReportar, setSismoParaReportar] = useState(null);
   const [revisionReporte, setRevisionReporte] = useState('');
+
+  // Estados para el reporte de un sismo NUEVO (identificador desconocido,
+  // sección 6 del enunciado: "el identificador... se ingresa por parte
+  // del usuario de cada estación")
+  const [mostrarFormularioNuevo, setMostrarFormularioNuevo] = useState(false);
+  const [formularioNuevo, setFormularioNuevo] = useState(FORMULARIO_NUEVO_VACIO);
+  const [enviandoNuevo, setEnviandoNuevo] = useState(false);
+
+  // Estado para el modal de consulta enriquecida
+  const [idParaDetalle, setIdParaDetalle] = useState(null);
 
   // Variables calculadas
   const isDark = theme === 'dark';
@@ -66,11 +83,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
   const lon = Number(station?.lon);
   const API_URL = import.meta.env.VITE_API_URL;
 
-  /**
-   * Consulta el servicio de sismos para refrescar la lista de eventos disponibles.
-   *
-   * @param {boolean} [mostrarLoading=false] - Indica si activa el spinner global.
-   */
   const cargarSismos = useCallback(async (mostrarLoading = false) => {
     try {
       if (mostrarLoading) setLoadingSismos(true);
@@ -94,7 +106,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
     }
   }, []);
 
-  // Carga inicial y actualización periódica (polling cada 3 segundos)
   useEffect(() => {
     if (!station) return;
 
@@ -107,11 +118,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
     return () => clearInterval(intervalId);
   }, [station, cargarSismos]);
 
-  /**
-   * Selecciona un sismo y abre el formulario para asignar el número de revisión.
-   *
-   * @param {Object} sismo - Evento sísmico seleccionado.
-   */
   const prepararReporte = (sismo) => {
     setSismoParaReportar(sismo);
     setRevisionReporte(
@@ -122,20 +128,11 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
     setReportMessage(null);
   };
 
-  /**
-   * Cancela la selección del sismo y limpia el formulario de reporte.
-   */
   const cancelarReporte = () => {
     setSismoParaReportar(null);
     setRevisionReporte('');
   };
 
-  /**
-   * Valida los parámetros y realiza la petición HTTP POST para registrar el reporte.
-   *
-   * @param {Object} sismo - Evento sísmico a reportar.
-   * @param {string|number} revision - Valor de la revisión especificado por el usuario.
-   */
   const reportarSismo = async (sismo, revision) => {
     try {
       setReportingId(sismo.id);
@@ -174,7 +171,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
         );
       }
 
-      // Actualización reactiva del estado local
       const sismoActualizado = data?.sismo;
 
       if (sismoActualizado) {
@@ -208,6 +204,89 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
     }
   };
 
+  // ---------------------------------------------------------
+  // REPORTAR SISMO NUEVO (identificador desconocido)
+  // ---------------------------------------------------------
+
+  const abrirFormularioNuevo = () => {
+    setFormularioNuevo({ ...FORMULARIO_NUEVO_VACIO, timestamp: timestampPorDefecto() });
+    setMostrarFormularioNuevo(true);
+    setReportMessage(null);
+  };
+
+  const cerrarFormularioNuevo = () => {
+    setMostrarFormularioNuevo(false);
+    setFormularioNuevo(FORMULARIO_NUEVO_VACIO);
+  };
+
+  const actualizarCampoNuevo = (campo, valor) => {
+    setFormularioNuevo((actual) => ({ ...actual, [campo]: valor }));
+  };
+
+  const formularioNuevoValido = () => {
+    const { sismo_id, magnitude, depth, epicenter_x, epicenter_y, timestamp, revision } = formularioNuevo;
+    return (
+      sismo_id !== '' && Number.isInteger(Number(sismo_id)) && Number(sismo_id) > 0 &&
+      magnitude !== '' && !Number.isNaN(Number(magnitude)) &&
+      depth !== '' && !Number.isNaN(Number(depth)) &&
+      epicenter_x !== '' && !Number.isNaN(Number(epicenter_x)) &&
+      epicenter_y !== '' && !Number.isNaN(Number(epicenter_y)) &&
+      timestamp !== '' &&
+      revision !== '' && Number.isInteger(Number(revision)) && Number(revision) > 0
+    );
+  };
+
+  const enviarReporteNuevo = async () => {
+    if (!formularioNuevoValido() || enviandoNuevo) return;
+
+    try {
+      setEnviandoNuevo(true);
+      setReportMessage(null);
+
+      const payload = {
+        sismo_id: Number(formularioNuevo.sismo_id),
+        station_id: station.id,
+        magnitude: Number(formularioNuevo.magnitude),
+        depth: Number(formularioNuevo.depth),
+        epicenter_x: Number(formularioNuevo.epicenter_x),
+        epicenter_y: Number(formularioNuevo.epicenter_y),
+        timestamp: new Date(formularioNuevo.timestamp).toISOString(),
+        revision: Number(formularioNuevo.revision)
+      };
+
+      const response = await fetch(`${API_URL}/reportes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+          data?.error ||
+          'No se pudo encolar el reporte.'
+        );
+      }
+
+      setReportMessage({
+        type: 'success',
+        text: `Reporte encolado para el id ${payload.sismo_id}. Procésalo desde el Observatorio (cola de reportes) para que se cree el evento.`
+      });
+
+      cerrarFormularioNuevo();
+    } catch (error) {
+      console.error('Error enviando reporte nuevo:', error);
+      setReportMessage({
+        type: 'error',
+        text: error.message || 'Error al enviar el reporte nuevo.'
+      });
+    } finally {
+      setEnviandoNuevo(false);
+    }
+  };
+
   if (!station) return null;
 
   return (
@@ -218,9 +297,7 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
           : 'bg-white/95 border-zinc-200/80 text-zinc-800 shadow-2xl shadow-orange-950/5'
       }`}
     >
-      {/* ------------------------------------------------------------------ */}
-      {/* HEADER: Métricas operativas e información de la estación          */}
-      {/* ------------------------------------------------------------------ */}
+      {/* HEADER */}
       <div
         className={`p-5 border-b relative overflow-hidden ${
           isDark
@@ -270,9 +347,7 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
           </button>
         </div>
 
-        {/* Indicadores rápidos */}
         <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-500/10 text-[11px]">
-          {/* Estado */}
           <div
             className={`flex items-center justify-center gap-1.5 px-2 py-1 rounded-lg border font-bold uppercase ${
               isActive
@@ -298,7 +373,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
             <span className="text-[10px] truncate">{station.status}</span>
           </div>
 
-          {/* Coordenadas */}
           <div
             className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg border font-mono ${
               isDark
@@ -312,7 +386,6 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
             </span>
           </div>
 
-          {/* Cobertura */}
           <div
             className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg border font-medium ${
               isDark
@@ -326,11 +399,8 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* PANEL DE EVENTOS: Formularios, estado de red y lista de sismos     */}
-      {/* ------------------------------------------------------------------ */}
+      {/* PANEL DE EVENTOS */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-        {/* Cabecera del listado */}
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center space-x-2">
             <div className="p-1 rounded-md bg-orange-500/10 text-orange-500">
@@ -352,6 +422,22 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
             {sismos.length}
           </span>
         </div>
+
+        {/* Botón: reportar sismo NUEVO (identificador desconocido) */}
+        {!mostrarFormularioNuevo && (
+          <button
+            type="button"
+            onClick={abrirFormularioNuevo}
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wide border-2 border-dashed transition-all ${
+              isDark
+                ? 'border-orange-500/30 text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/50'
+                : 'border-orange-300 text-orange-600 hover:bg-orange-50'
+            }`}
+          >
+            <Plus className="w-4 h-4" />
+            Reportar sismo nuevo
+          </button>
+        )}
 
         {/* Mensajes de notificación */}
         {reportMessage && (
@@ -376,7 +462,161 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
           </div>
         )}
 
-        {/* Formulario de preparación de reporte */}
+        {/* FORMULARIO: sismo nuevo (id manual) */}
+        {mostrarFormularioNuevo && (
+          <div
+            className={`p-4 rounded-2xl border transition-all animate-in fade-in zoom-in-95 duration-200 ${
+              isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-orange-50/50 border-orange-200'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-black uppercase tracking-wider text-orange-500">
+                Sismo nuevo -- id manual
+              </p>
+              <button
+                type="button"
+                onClick={cerrarFormularioNuevo}
+                className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-500'}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Identificador (sismo_id)</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={formularioNuevo.sismo_id}
+                  onChange={(e) => actualizarCampoNuevo('sismo_id', e.target.value)}
+                  placeholder="Ej: 9001"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Magnitud</label>
+                <input
+                  type="number" step="0.1"
+                  value={formularioNuevo.magnitude}
+                  onChange={(e) => actualizarCampoNuevo('magnitude', e.target.value)}
+                  placeholder="5.0"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Profundidad (km)</label>
+                <input
+                  type="number" step="0.1"
+                  value={formularioNuevo.depth}
+                  onChange={(e) => actualizarCampoNuevo('depth', e.target.value)}
+                  placeholder="20.0"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Longitud (X)</label>
+                <input
+                  type="number" step="0.0001"
+                  value={formularioNuevo.epicenter_x}
+                  onChange={(e) => actualizarCampoNuevo('epicenter_x', e.target.value)}
+                  placeholder="-75.0"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Latitud (Y)</label>
+                <input
+                  type="number" step="0.0001"
+                  value={formularioNuevo.epicenter_y}
+                  onChange={(e) => actualizarCampoNuevo('epicenter_y', e.target.value)}
+                  placeholder="4.0"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Fecha y hora</label>
+                <input
+                  type="datetime-local"
+                  value={formularioNuevo.timestamp}
+                  onChange={(e) => actualizarCampoNuevo('timestamp', e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-zinc-400 mb-1">Revisión inicial</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={formularioNuevo.revision}
+                  onChange={(e) => actualizarCampoNuevo('revision', e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border outline-none text-sm font-bold ${
+                    isDark ? 'bg-zinc-950 border-zinc-700 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 focus:border-orange-400'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={cerrarFormularioNuevo}
+                className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-wider border transition-all ${
+                  isDark ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                }`}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={!formularioNuevoValido() || enviandoNuevo}
+                onClick={enviarReporteNuevo}
+                className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-wider text-white flex items-center justify-center gap-1.5 transition-all ${
+                  !formularioNuevoValido() || enviandoNuevo
+                    ? 'bg-zinc-700 cursor-not-allowed opacity-70'
+                    : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 active:scale-95 shadow-md shadow-orange-500/20'
+                }`}
+              >
+                {enviandoNuevo ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enviando</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Encolar</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <p className={`text-[10px] mt-2.5 leading-relaxed ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+              Esto solo ENCOLA el reporte. El evento se crea cuando alguien lo procese desde el Observatorio (cola de reportes).
+            </p>
+          </div>
+        )}
+
+        {/* Formulario de preparación de reporte (sismo existente) */}
         {sismoParaReportar && (
           <div
             className={`p-4 rounded-2xl border transition-all animate-in fade-in zoom-in-95 duration-200 ${
@@ -545,28 +785,43 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      disabled={isReporting}
-                      onClick={() => prepararReporte(sismo)}
-                      className={`shrink-0 px-3.5 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-wider text-white transition-all flex items-center gap-1.5 ${
-                        isReporting
-                          ? 'bg-zinc-700 cursor-not-allowed opacity-80'
-                          : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 active:scale-95 shadow-md shadow-orange-500/20'
-                      }`}
-                    >
-                      {isReporting ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Enviando</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-3.5 h-3.5" />
-                          <span>Reportar</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setIdParaDetalle(sismoId)}
+                        title="Ver detalle (profundidad, altura, factor de balance)"
+                        className={`p-2 rounded-xl transition-all ${
+                          isDark
+                            ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                            : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600'
+                        }`}
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isReporting}
+                        onClick={() => prepararReporte(sismo)}
+                        className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-wider text-white transition-all flex items-center gap-1.5 ${
+                          isReporting
+                            ? 'bg-zinc-700 cursor-not-allowed opacity-80'
+                            : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 active:scale-95 shadow-md shadow-orange-500/20'
+                        }`}
+                      >
+                        {isReporting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Enviando</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            <span>Reportar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -574,6 +829,15 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
           </div>
         )}
       </div>
+
+      {/* Modal de consulta enriquecida */}
+      {idParaDetalle && (
+        <EventoDetalleModal
+          sismoId={idParaDetalle}
+          theme={theme}
+          onClose={() => setIdParaDetalle(null)}
+        />
+      )}
     </aside>
   );
 };
