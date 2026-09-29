@@ -1,10 +1,14 @@
-import { SeismicEvent, StatusSismo } from '../models/Sismos';
+import { StatusSismo, type SeismicEvent } from '../models/Sismos';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const ENDPOINT = `${API_URL}/sismos`;
 
 // Tipo helper para omitir la 'id' en creaciones (el backend suele asignarla)
-export type CreateSeismicEventInput = Omit<SeismicEvent, 'id'> & { id?: number };
+export type CreateSeismicEventInput = Omit<SeismicEvent, 'id'> & {
+  id?: number;
+  /** Station that originates the record (optional) */
+  initial_station_id?: string | null;
+};
 
 export const sismosService = {
   // GET: Obtener todos los eventos sísmicos
@@ -43,7 +47,11 @@ export const sismosService = {
       body: JSON.stringify(bodyPayload),
     });
 
-    if (!response.ok) throw new Error('Error al registrar el sismo');
+    if (!response.ok) {
+      // Show the backend reason (duplicated/retired id, out of range, ...)
+      const detalle = await response.json().catch(() => null);
+      throw new Error(detalle?.message || detalle?.error || 'Error al registrar el sismo');
+    }
     return response.json();
   },
 
@@ -64,7 +72,10 @@ export const sismosService = {
       body: JSON.stringify(payload),
     });
 
-    if (!response.ok) throw new Error(`Error al actualizar el sismo #${id}`);
+    if (!response.ok) {
+      const detalle = await response.json().catch(() => null);
+      throw new Error(detalle?.message || detalle?.error || `Error al actualizar el sismo #${id}`);
+    }
     return response.json();
   },
 

@@ -76,6 +76,35 @@ const adaptarReporte = (reporte) => {
 };
 
 /**
+ * Adapta toda la cola y garantiza que cada elemento tenga un id
+ * ÚNICO.
+ *
+ * Dos reportes con la misma estación, sismo y revisión producen el
+ * mismo id base. Si ese id se usa como `key` de React, las claves
+ * duplicadas hacen que React quite del panel el elemento equivocado
+ * (el reporte "se queda ahí"). Por eso a la n-ésima repetición se le
+ * añade un sufijo.
+ *
+ * El sufijo se basa en el orden de aparición dentro de la cola, no en
+ * el index global: los reportes salen siempre por el frente, así que
+ * al procesar uno los repetidos restantes conservan claves estables.
+ */
+const adaptarCola = (cola) => {
+  const repeticiones = {};
+
+  return cola.map((reporte) => {
+    const adaptado = adaptarReporte(reporte);
+    const n = repeticiones[adaptado.id] ?? 0;
+
+    repeticiones[adaptado.id] = n + 1;
+
+    return n === 0
+      ? adaptado
+      : { ...adaptado, id: `${adaptado.id}#${n}` };
+  });
+};
+
+/**
  * Convierte las decisiones internas del backend
  * en mensajes comprensibles para el usuario.
  */
@@ -102,6 +131,15 @@ const obtenerMensajeDecision = (
         tipo: 'success',
       };
 
+    case 'alta':
+      return {
+        titulo: 'Evento nuevo registrado',
+        mensaje:
+          detalle ||
+          'El identificador era desconocido: se registró un evento nuevo a partir del reporte.',
+        tipo: 'success',
+      };
+
     case 'reporte_antiguo':
       return {
         titulo: 'Reporte inválido para reportar',
@@ -117,6 +155,24 @@ const obtenerMensajeDecision = (
         mensaje:
           detalle ||
           'El reporte entra en conflicto con la información registrada para esta revisión.',
+        tipo: 'warning',
+      };
+
+    case 'identificador_retirado':
+      return {
+        titulo: 'Identificador retirado',
+        mensaje:
+          detalle ||
+          'Este identificador fue eliminado y está retirado: no puede reactivarse mediante un reporte.',
+        tipo: 'warning',
+      };
+
+    case 'datos_invalidos':
+      return {
+        titulo: 'Reporte rechazado por datos inválidos',
+        mensaje:
+          detalle ||
+          'El reporte contenía datos fuera de rango y fue retirado de la cola.',
         tipo: 'warning',
       };
 
@@ -176,6 +232,13 @@ export const ObservatorioPage = () => {
   const [error, setError] =
     useState(null);
 
+  // Aviso informativo de orden FIFO. Va por su propio canal y NO usa
+  // `decision`: esa variable la usa EventAnalyzer para mostrar el
+  // resultado de una decisión ya tomada, y mezclarlas dejaba el
+  // panel en un estado que no permitía continuar.
+  const [aviso, setAviso] =
+    useState(null);
+
   // ---------------------------------------------------------
   // MODO AUTOMÁTICO
   // ---------------------------------------------------------
@@ -199,17 +262,6 @@ export const ObservatorioPage = () => {
   // CARGAR COLA
   // ---------------------------------------------------------
 
-  /**
-   * Carga la cola desde el backend.
-   *
-   * seleccionarPrimero:
-   * - true  -> selecciona el primer reporte.
-   * - false -> solamente actualiza la lista.
-   *
-   * mostrarLoading:
-   * - true  -> muestra el overlay inicial.
-   * - false -> actualiza silenciosamente.
-   */
   const cargarCola = useCallback(
     async (
       seleccionarPrimero = true,
@@ -226,7 +278,7 @@ export const ObservatorioPage = () => {
           await obtenerColaReportes();
 
         const eventosAdaptados =
-          cola.map(adaptarReporte);
+          adaptarCola(cola);
 
         setPendingEvents(
           eventosAdaptados
@@ -265,11 +317,52 @@ export const ObservatorioPage = () => {
   }, [cargarCola]);
 
   // ---------------------------------------------------------
+  // COLA FIFO: solo se puede procesar el reporte del FRENTE
+  // ---------------------------------------------------------
+
+  /**
+   * El backend procesa SIEMPRE el primer reporte de la cola
+   * (sección 8 del enunciado: cola FIFO, un reporte por paso).
+   * Los endpoints /cola/validar y /cola/descartar no reciben un id.
+   *
+   * Si el usuario selecciona otro reporte y pulsa Aprobar/Rechazar,
+   * el backend actuaría sobre uno distinto al que ve en pantalla.
+   * Por eso, si lo seleccionado no es el frente, no se llama al
+   * backend: se selecciona el primero y se avisa.
+   *
+   * Retorna true si se puede continuar con la acción.
+   */
+  const verificarEsElFrente = () => {
+    // Cualquier aviso anterior se limpia; si hay que rebotar, se
+    // vuelve a fijar abajo (React aplica solo el último valor).
+    setAviso(null);
+
+    const frente = pendingEvents[0];
+
+    if (!frente || !selectedEvent || selectedEvent.id === frente.id) {
+      return true;
+    }
+
+    setSelectedEvent(frente);
+    setDecision(null);
+    setAviso({
+      titulo: 'Los reportes se procesan en orden de llegada',
+      mensaje: `El primero de la cola es ${frente.formatted_id} (estación ${frente.station_id}, revisión ${frente.revision}). Se seleccionó ese: revísalo y vuelve a aprobarlo o rechazarlo.`,
+    });
+
+    return false;
+  };
+
+  // ---------------------------------------------------------
   // RECHAZAR REPORTE
   // ---------------------------------------------------------
 
   const handleReject = async () => {
     if (!selectedEvent || processing) {
+      return;
+    }
+
+    if (!verificarEsElFrente()) {
       return;
     }
 
@@ -304,13 +397,16 @@ export const ObservatorioPage = () => {
 
       setSelectedEvent(null);
 
-      // Actualizamos la cola sin overlay
       await cargarCola(false, false);
     } catch (err) {
       console.error(
         'Error al descartar el reporte:',
         err
       );
+
+      // La cola del backend pudo haber cambiado (ej. ya estaba
+      // vacía): se resincroniza antes de mostrar el error.
+      await cargarCola(true, false);
 
       setError(
         err.message ||
@@ -327,6 +423,10 @@ export const ObservatorioPage = () => {
 
   const handleApprove = async () => {
     if (!selectedEvent || processing) {
+      return;
+    }
+
+    if (!verificarEsElFrente()) {
       return;
     }
 
@@ -360,7 +460,6 @@ export const ObservatorioPage = () => {
 
       setSelectedEvent(null);
 
-      // Actualizamos la cola sin overlay
       await cargarCola(false, false);
     } catch (err) {
       console.error(
@@ -368,8 +467,6 @@ export const ObservatorioPage = () => {
         err
       );
 
-      // Las decisiones de negocio
-      // no se consideran errores técnicos.
       if (err.decision) {
         const decisionFormateada =
           obtenerMensajeDecision(
@@ -398,6 +495,12 @@ export const ObservatorioPage = () => {
 
         await cargarCola(false, false);
       } else {
+        // Error sin decisión de negocio (ej. 404 "no hay reportes
+        // pendientes"): la cola del backend pudo haber cambiado sin
+        // que la pantalla lo sepa. Se resincroniza ANTES de mostrar
+        // el error (cargarCola limpia el error al empezar).
+        await cargarCola(true, false);
+
         setError(
           err.message ||
             'Ocurrió un error al emitir el reporte.'
@@ -414,10 +517,6 @@ export const ObservatorioPage = () => {
 
   const procesarAutomaticamente =
     useCallback(async () => {
-      /**
-       * Evitamos que dos ejecuciones del intervalo
-       * procesen simultáneamente.
-       */
       if (processing) {
         return;
       }
@@ -427,16 +526,8 @@ export const ObservatorioPage = () => {
         setDecision(null);
         setError(null);
 
-        // ---------------------------------------------------
-        // 1. Consultar cola actual
-        // ---------------------------------------------------
-
         const cola =
           await obtenerColaReportes();
-
-        // ---------------------------------------------------
-        // 2. Si no hay reportes
-        // ---------------------------------------------------
 
         if (!cola || cola.length === 0) {
           setPendingEvents([]);
@@ -444,20 +535,12 @@ export const ObservatorioPage = () => {
           return;
         }
 
-        // ---------------------------------------------------
-        // 3. Adaptar cola
-        // ---------------------------------------------------
-
         const eventosAdaptados =
-          cola.map(adaptarReporte);
+          adaptarCola(cola);
 
         setPendingEvents(
           eventosAdaptados
         );
-
-        // ---------------------------------------------------
-        // 4. Seleccionar primer reporte
-        // ---------------------------------------------------
 
         const primerReporte =
           eventosAdaptados[0];
@@ -466,16 +549,8 @@ export const ObservatorioPage = () => {
           primerReporte
         );
 
-        // ---------------------------------------------------
-        // 5. Procesar primer reporte
-        // ---------------------------------------------------
-
         const resultado =
           await validarYEmitirReporte();
-
-        // ---------------------------------------------------
-        // 6. Mostrar decisión
-        // ---------------------------------------------------
 
         const decisionFormateada =
           obtenerMensajeDecision(
@@ -497,27 +572,15 @@ export const ObservatorioPage = () => {
             decisionFormateada.tipo,
         });
 
-        // ---------------------------------------------------
-        // 7. Consultar nuevamente la cola
-        // ---------------------------------------------------
-
         const nuevaCola =
           await obtenerColaReportes();
 
         const nuevosEventos =
-          nuevaCola.map(adaptarReporte);
-
-        // ---------------------------------------------------
-        // 8. Actualizar lista
-        // ---------------------------------------------------
+          adaptarCola(nuevaCola);
 
         setPendingEvents(
           nuevosEventos
         );
-
-        // ---------------------------------------------------
-        // 9. Seleccionar siguiente reporte
-        // ---------------------------------------------------
 
         setSelectedEvent(
           nuevosEventos[0] || null
@@ -530,6 +593,7 @@ export const ObservatorioPage = () => {
          * - reporte_antiguo
          * - conflicto
          * - ruido
+         * - identificador_retirado
          *
          * Por eso no las mostramos como errores técnicos.
          */
@@ -557,13 +621,12 @@ export const ObservatorioPage = () => {
 
           setError(null);
 
-          // Actualizar cola después de la decisión
           try {
             const nuevaCola =
               await obtenerColaReportes();
 
             const nuevosEventos =
-              nuevaCola.map(adaptarReporte);
+              adaptarCola(nuevaCola);
 
             setPendingEvents(
               nuevosEventos
@@ -602,7 +665,6 @@ export const ObservatorioPage = () => {
     useCallback(
       (segundos) => {
         try {
-          // Detener cualquier intervalo anterior
           detenerModoAutomatico();
 
           setIntervaloAutomatico(
@@ -615,11 +677,6 @@ export const ObservatorioPage = () => {
             false
           );
 
-          /**
-           * IMPORTANTE:
-           * El servicio recibe primero
-           * el intervalo y después el callback.
-           */
           iniciarModoAutomatico(
             segundos,
             procesarAutomaticamente
@@ -674,8 +731,6 @@ export const ObservatorioPage = () => {
           : 'bg-amber-50/20 text-zinc-900'
       }`}
     >
-      {/* Navegación Superior */}
-
       <Navbar
         theme={theme}
         onToggleTheme={() =>
@@ -684,8 +739,6 @@ export const ObservatorioPage = () => {
           )
         }
       />
-
-      {/* Barra de Métricas Globales */}
 
       <MetricBar
         isDark={isDark}
@@ -696,20 +749,12 @@ export const ObservatorioPage = () => {
         }
       />
 
-      {/* Área Principal */}
-
       <div className="flex flex-1 relative overflow-hidden">
-        {/* Cola */}
-
         <EventQueue
           events={pendingEvents}
           selectedEvent={selectedEvent}
           isDark={isDark}
           onSelectEvent={(event) => {
-            /**
-             * No permitimos selección manual
-             * mientras el modo automático está activo.
-             */
             if (modoAutomatico) {
               return;
             }
@@ -717,18 +762,13 @@ export const ObservatorioPage = () => {
             setSelectedEvent(event);
             setDecision(null);
             setError(null);
+            setAviso(null);
           }}
           stressMode={stressMode}
         />
 
-        {/* Panel Central */}
-
         <div className="flex-1 relative flex flex-col overflow-hidden">
-          {/* Botones superiores */}
-
           <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
-            {/* MODO AUTOMÁTICO */}
-
             {!modoAutomatico ? (
               <button
                 type="button"
@@ -766,8 +806,6 @@ export const ObservatorioPage = () => {
               </button>
             )}
 
-            {/* MODO ESTRÉS */}
-
             <button
               type="button"
               onClick={() =>
@@ -797,8 +835,6 @@ export const ObservatorioPage = () => {
             </button>
           </div>
 
-          {/* Analizador */}
-
           <EventAnalyzer
             event={selectedEvent}
             isDark={isDark}
@@ -809,8 +845,6 @@ export const ObservatorioPage = () => {
           />
         </div>
 
-        {/* Overlay de carga */}
-
         {loading && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/50 backdrop-blur-md transition-all">
             <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mb-3" />
@@ -820,8 +854,6 @@ export const ObservatorioPage = () => {
             </p>
           </div>
         )}
-
-        {/* Overlay de procesamiento */}
 
         {processing && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm transition-all">
@@ -835,7 +867,47 @@ export const ObservatorioPage = () => {
           </div>
         )}
 
-        {/* Error técnico */}
+        {/* Aviso informativo: orden FIFO de la cola */}
+
+        {aviso && !loading && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4">
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-950/90 border border-amber-700/60 text-amber-100 shadow-2xl backdrop-blur-md">
+              <svg
+                className="w-5 h-5 text-amber-400 shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+
+              <div className="flex-1 text-xs">
+                <h4 className="font-bold text-amber-300 mb-0.5">
+                  {aviso.titulo}
+                </h4>
+
+                <p className="opacity-90 leading-relaxed">
+                  {aviso.mensaje}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setAviso(null)
+                }
+                className="text-amber-400 hover:text-white p-1 rounded-md transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && !loading && (
           <div className="absolute bottom-6 right-6 z-50 max-w-md animate-bounce-short">
@@ -877,10 +949,6 @@ export const ObservatorioPage = () => {
           </div>
         )}
       </div>
-
-      {/* =====================================================
-          MODAL MODO AUTOMÁTICO
-          ===================================================== */}
 
       <ModoAutomaticoModal
         isDark={isDark}

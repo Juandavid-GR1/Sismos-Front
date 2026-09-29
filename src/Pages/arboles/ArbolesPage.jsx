@@ -19,12 +19,22 @@ import {
   Maximize2,
   Cpu,
   CheckCircle2,
+  AlertTriangle,
   SlidersHorizontal,
-  Workflow
+  Workflow,
+  Zap,
+  ShieldCheck,
+  Loader2
 } from 'lucide-react';
 
 // Importación del Navbar Centralizado
 import { Navbar } from '../../components/Navbar';
+
+// ============================================================
+// API CONNECTION: same backend as the rest of the app (VITE_API_URL in
+// .env). The old hardcoded 127.0.0.1 URL broke on any other machine.
+// ============================================================
+const ARBOL_API_URL = import.meta.env.VITE_API_URL?.trim() || 'http://127.0.0.1:5000';
 
 // ============================================================
 // COMPONENTES SECUNDARIOS DE UI
@@ -52,20 +62,105 @@ const MetricItem = ({ icon: Icon, label, value, isDark, highlight }) => (
   </div>
 );
 
-// Renderizador SVG corregido (Puntos de origen estables para hover)
-const MockTreeSVG = ({ isDark }) => {
-  const nodes = [
-    { x: 400, y: 70, val: '5.4', label: 'Raíz', root: true },
-    { x: 250, y: 160, val: '3.2', label: 'Izq' },
-    { x: 550, y: 160, val: '6.1', label: 'Der' },
-    { x: 160, y: 270, val: '2.1', label: 'Hoja' },
-    { x: 340, y: 270, val: '4.0', label: 'Hoja' },
-    { x: 460, y: 270, val: '5.8', label: 'Hoja' },
-    { x: 640, y: 270, val: '7.2', label: 'Hoja' }
-  ];
+// ============================================================
+// RENDERIZADOR DINÁMICO DEL ÁRBOL
+// Reemplaza a MockTreeSVG: calcula posiciones a partir de la
+// topología real que devuelve GET /arbol/topologia, en vez de usar
+// 7 nodos fijos.
+// ============================================================
+
+const ESPACIO_HORIZONTAL = 90;
+const ESPACIO_VERTICAL = 110;
+const RADIO_NODO = 28;
+
+/**
+ * Recorre la topología (recursiva, hijoIzquierdo/hijoDerecho anidados)
+ * y le asigna a cada nodo una posición (x, y):
+ *  - x: según su posición en el recorrido INORDEN (izquierda a
+ *    derecha), igual que se ve un árbol dibujado a mano.
+ *  - y: según su profundidad (nivel).
+ * Se apoya en un contador compartido (posicionInorden) que avanza
+ * cada vez que se "visita" un nodo en el recorrido, exactamente como
+ * el inorden que ya construiste en Python.
+ */
+function calcularPosiciones(nodo, profundidad, contador, resultado) {
+  if (!nodo) return;
+
+  calcularPosiciones(nodo.hijoIzquierdo, profundidad + 1, contador, resultado);
+
+  const x = contador.valor * ESPACIO_HORIZONTAL;
+  const y = profundidad * ESPACIO_VERTICAL + 50;
+  contador.valor += 1;
+
+  resultado.push({
+    x,
+    y,
+    clave: nodo.clave,
+    altura: nodo.altura,
+    factorBalance: nodo.factorBalance,
+    balanceado: nodo.balanceado,
+    hijoIzquierdo: nodo.hijoIzquierdo,
+    hijoDerecho: nodo.hijoDerecho,
+    _idInterno: `${nodo.clave.join('-')}`
+  });
+
+  calcularPosiciones(nodo.hijoDerecho, profundidad + 1, contador, resultado);
+}
+
+/**
+ * Junta las posiciones calculadas con las líneas padre-hijo, para
+ * poder dibujar ambas cosas en el SVG.
+ */
+function construirGrafo(raiz) {
+  if (!raiz) return { nodos: [], enlaces: [], ancho: 0, alto: 0 };
+
+  const nodos = [];
+  calcularPosiciones(raiz, 0, { valor: 0 }, nodos);
+
+  // mapa rápido de clave -> posición, para poder trazar las líneas
+  const posicionPorClave = new Map(
+    nodos.map((n) => [n._idInterno, { x: n.x, y: n.y }])
+  );
+
+  const enlaces = [];
+  nodos.forEach((n) => {
+    if (n.hijoIzquierdo) {
+      const hijoId = n.hijoIzquierdo.clave.join('-');
+      const posHijo = posicionPorClave.get(hijoId);
+      if (posHijo) enlaces.push({ x1: n.x, y1: n.y, x2: posHijo.x, y2: posHijo.y });
+    }
+    if (n.hijoDerecho) {
+      const hijoId = n.hijoDerecho.clave.join('-');
+      const posHijo = posicionPorClave.get(hijoId);
+      if (posHijo) enlaces.push({ x1: n.x, y1: n.y, x2: posHijo.x, y2: posHijo.y });
+    }
+  });
+
+  const ancho = nodos.length > 0 ? Math.max(...nodos.map((n) => n.x)) + ESPACIO_HORIZONTAL : 400;
+  const alto = nodos.length > 0 ? Math.max(...nodos.map((n) => n.y)) + ESPACIO_VERTICAL : 300;
+
+  return { nodos, enlaces, ancho, alto };
+}
+
+const DynamicTreeSVG = ({ topologia, isDark }) => {
+  const { nodos, enlaces, ancho, alto } = useMemo(
+    () => construirGrafo(topologia?.raiz),
+    [topologia]
+  );
+
+  if (!topologia || topologia.vacio || nodos.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-zinc-500 text-sm font-bold">
+        El árbol está vacío -- inserta eventos para verlo aquí.
+      </div>
+    );
+  }
 
   return (
-    <svg className="w-full h-full min-h-[420px]" viewBox="0 0 800 380">
+    <svg
+      className="w-full h-full min-h-[420px]"
+      viewBox={`0 0 ${ancho} ${alto}`}
+    >
       <defs>
         <linearGradient id="treeLineGrad" x1="0%" y1="0%" x2="0%" y2="100%">
           <stop offset="0%" stopColor="#f97316" stopOpacity="0.6" />
@@ -73,44 +168,56 @@ const MockTreeSVG = ({ isDark }) => {
         </linearGradient>
       </defs>
 
-      {/* Enlaces de Aristas (Estables sin parpadeos) */}
+      {/* Enlaces padre-hijo */}
       <g stroke="url(#treeLineGrad)" strokeWidth="2" strokeDasharray="4 3">
-        <line x1="400" y1="70" x2="250" y2="160" />
-        <line x1="400" y1="70" x2="550" y2="160" />
-        <line x1="250" y1="160" x2="160" y2="270" />
-        <line x1="250" y1="160" x2="340" y2="270" />
-        <line x1="550" y1="160" x2="460" y2="270" />
-        <line x1="550" y1="160" x2="640" y2="270" />
+        {enlaces.map((e, i) => (
+          <line key={i} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />
+        ))}
       </g>
 
-      {/* Nodos con transformOrigin explícito para evitar saltos */}
-      {nodes.map((node, i) => (
-        <g key={i} className="cursor-pointer group">
-          <circle
-            cx={node.x}
-            cy={node.y}
-            r={node.root ? 26 : 22}
-            style={{ transformOrigin: `${node.x}px ${node.y}px` }}
-            className={`transition-transform duration-200 group-hover:scale-110 ${
-              node.root
-                ? 'fill-orange-500 stroke-amber-300 stroke-2'
-                : isDark
-                  ? 'fill-zinc-900 stroke-orange-500/70 stroke-2 group-hover:stroke-orange-400 group-hover:fill-zinc-800'
-                  : 'fill-white stroke-orange-500 stroke-2 group-hover:stroke-orange-600 group-hover:fill-orange-50'
-            }`}
-          />
-          <text
-            x={node.x}
-            y={node.y + 4}
-            textAnchor="middle"
-            className={`text-xs font-black select-none pointer-events-none transition-colors ${
-              node.root ? 'fill-white' : isDark ? 'fill-zinc-100' : 'fill-zinc-900'
-            }`}
-          >
-            {node.val}
-          </text>
-        </g>
-      ))}
+      {/* Nodos */}
+      {nodos.map((n) => {
+        const [prioridad, magnitud, id] = n.clave;
+        const desbalanceado = !n.balanceado;
+
+        return (
+          <g key={n._idInterno} className="cursor-pointer group">
+            <circle
+              cx={n.x}
+              cy={n.y}
+              r={RADIO_NODO}
+              style={{ transformOrigin: `${n.x}px ${n.y}px` }}
+              className={`transition-transform duration-200 group-hover:scale-110 ${
+                desbalanceado
+                  ? 'fill-rose-500 stroke-rose-300 stroke-2'
+                  : isDark
+                    ? 'fill-zinc-900 stroke-orange-500/70 stroke-2 group-hover:stroke-orange-400 group-hover:fill-zinc-800'
+                    : 'fill-white stroke-orange-500 stroke-2 group-hover:stroke-orange-600 group-hover:fill-orange-50'
+              }`}
+            />
+            <text
+              x={n.x}
+              y={n.y - 2}
+              textAnchor="middle"
+              className={`text-[11px] font-black select-none pointer-events-none ${
+                desbalanceado ? 'fill-white' : isDark ? 'fill-zinc-100' : 'fill-zinc-900'
+              }`}
+            >
+              M{magnitud}
+            </text>
+            <text
+              x={n.x}
+              y={n.y + 11}
+              textAnchor="middle"
+              className={`text-[9px] font-bold select-none pointer-events-none ${
+                desbalanceado ? 'fill-rose-100' : 'fill-zinc-500'
+              }`}
+            >
+              id:{id} fb:{n.factorBalance}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 };
@@ -123,42 +230,134 @@ export const ArbolesPage = () => {
   const [theme, setTheme] = useState('dark');
   const [activeTree, setActiveTree] = useState('bst');
   const [treeState, setTreeState] = useState(null);
+  const [topologia, setTopologia] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(100);
 
+  // Estado propio del control de modo estrés / recuperación
+  const [cambiandoModoEstres, setCambiandoModoEstres] = useState(false);
+  const [recuperando, setRecuperando] = useState(false);
+  const [ultimaRecuperacion, setUltimaRecuperacion] = useState(null);
+
   const isDark = theme === 'dark';
 
-  const loadTreeState = useCallback(async (treeType) => {
+  const loadTreeState = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Simulación de respuesta diferida del servidor
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      // Se piden las métricas y la topología en paralelo -- son dos
+      // endpoints separados según el contrato ya acordado.
+      const [respuestaMetricas, respuestaTopologia] = await Promise.all([
+        fetch(`${ARBOL_API_URL}/arbol/metricas`),
+        fetch(`${ARBOL_API_URL}/arbol/topologia`)
+      ]);
+
+      if (!respuestaMetricas.ok || !respuestaTopologia.ok) {
+        throw new Error('El servidor de estructuras respondió con un error.');
+      }
+
+      const metricas = await respuestaMetricas.json();
+      const nuevaTopologia = await respuestaTopologia.json();
 
       setTreeState({
-        cantidadNodos: 7,
-        altura: 3,
-        balance: treeType === 'avl' ? 0 : 2,
-        actualizadoEn: new Date().toLocaleTimeString()
+        cantidadNodos: metricas.cantidadNodos,
+        altura: metricas.altura,
+        balance: metricas.balance,
+        modoEstres: metricas.modoEstres,
+        hojas: metricas.hojas,
+        contadores: metricas.contadores,
+        actualizadoEn: metricas.actualizadoEn
       });
+      setTopologia(nuevaTopologia);
     } catch (err) {
       console.error('Error obteniendo estado del árbol:', err);
-      setError(err?.message || 'No se pudo obtener el estado actual del árbol.');
+      setError(
+        err?.message ||
+        `No se pudo conectar con el backend (${ARBOL_API_URL}). ¿Está corriendo Flask?`
+      );
       setTreeState(null);
+      setTopologia(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadTreeState(activeTree);
-  }, [activeTree, loadTreeState]);
+    loadTreeState();
+  }, [loadTreeState]);
 
   const refreshTree = useCallback(() => {
-    loadTreeState(activeTree);
-  }, [activeTree, loadTreeState]);
+    loadTreeState();
+  }, [loadTreeState]);
+
+  // ==========================================================
+  // CONTROL DE MODO ESTRÉS (sección 8 del enunciado)
+  // ==========================================================
+
+  const modoEstresActivo = treeState?.modoEstres ?? false;
+
+  const alternarModoEstres = useCallback(async () => {
+    try {
+      setCambiandoModoEstres(true);
+      setError(null);
+
+      const respuesta = await fetch(`${ARBOL_API_URL}/arbol/modo-estres`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activo: !modoEstresActivo })
+      });
+
+      if (!respuesta.ok) {
+        // 409: the backend refuses to leave stress mode while the tree
+        // is unbalanced (section 8) and explains why.
+        const detalle = await respuesta.json().catch(() => null);
+        throw new Error(detalle?.error || 'No se pudo cambiar el modo estrés.');
+      }
+
+      // Al desactivar el modo estrés, el árbol NO se recupera solo
+      // -- eso requiere pedir explícitamente recuperarBalanceGlobal()
+      // (regla del enunciado: "al solicitar la recuperación global,
+      // se pausa el procesamiento... el retorno al modo normal solo
+      // se completa cuando la auditoría confirma el equilibrio").
+      setUltimaRecuperacion(null);
+      await loadTreeState();
+    } catch (err) {
+      console.error('Error cambiando modo estrés:', err);
+      setError(err?.message || 'No se pudo cambiar el modo estrés.');
+    } finally {
+      setCambiandoModoEstres(false);
+    }
+  }, [modoEstresActivo, loadTreeState]);
+
+  const recuperarBalance = useCallback(async () => {
+    try {
+      setRecuperando(true);
+      setError(null);
+
+      const respuesta = await fetch(`${ARBOL_API_URL}/arbol/recuperar-balance`, {
+        method: 'POST'
+      });
+
+      if (!respuesta.ok) {
+        throw new Error('No se pudo ejecutar la recuperación de balance.');
+      }
+
+      const data = await respuesta.json();
+      setUltimaRecuperacion({
+        rotaciones: data.rotacionesAplicadas,
+        hora: new Date().toLocaleTimeString()
+      });
+
+      await loadTreeState();
+    } catch (err) {
+      console.error('Error en recuperación de balance:', err);
+      setError(err?.message || 'No se pudo ejecutar la recuperación de balance.');
+    } finally {
+      setRecuperando(false);
+    }
+  }, [loadTreeState]);
 
   const treeName = useMemo(
     () => (activeTree === 'bst' ? 'Binary Search Tree (BST)' : 'AVL Auto-Balancing Tree'),
@@ -264,6 +463,16 @@ export const ArbolesPage = () => {
         </div>
       </div>
 
+      {/* Aviso si no hay conexión con el servidor de estructuras */}
+      {error && (
+        <div className="max-w-[1700px] w-full mx-auto px-6 pt-4">
+          <div className="flex items-start gap-3 p-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs font-semibold">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
+
       {/* 3. CONTENIDO PRINCIPAL Y LIENZO */}
       <main className="flex-1 max-w-[1700px] w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6">
         {/* PANEL LATERAL DE MÉTRICAS */}
@@ -291,6 +500,15 @@ export const ArbolesPage = () => {
             <div className="space-y-3">
               <MetricItem icon={Layers} label="Nodos Registrados" value={nodeCount} isDark={isDark} />
               <MetricItem icon={Activity} label="Altura Máxima" value={treeHeight} isDark={isDark} />
+              <MetricItem icon={Layers} label="Hojas" value={treeState?.hojas ?? 0} isDark={isDark} />
+              {activeTree === 'avl' && treeState?.contadores && (
+                <MetricItem
+                  icon={Activity}
+                  label="Casos LL / RR / LR / RL · giros izq / der"
+                  value={`${['LL', 'RR', 'LR', 'RL'].map((c) => treeState.contadores.casos[c]).join(' / ')} · ${treeState.contadores.giros.izquierda} / ${treeState.contadores.giros.derecha}`}
+                  isDark={isDark}
+                />
+              )}
               {activeTree === 'avl' && (
                 <MetricItem
                   icon={SlidersHorizontal}
@@ -299,6 +517,72 @@ export const ArbolesPage = () => {
                   isDark={isDark}
                   highlight
                 />
+              )}
+              {modoEstresActivo && (
+                <MetricItem
+                  icon={AlertTriangle}
+                  label="Modo Estrés"
+                  value="ACTIVO"
+                  isDark={isDark}
+                  highlight
+                />
+              )}
+            </div>
+
+            {/* ============================================
+                CONTROLES DE MODO ESTRÉS Y RECUPERACIÓN
+                (sección 8 del enunciado)
+               ============================================ */}
+            <div className="mt-4 pt-4 border-t border-zinc-500/10 space-y-2">
+              <span className="text-[10px] font-bold uppercase text-zinc-500 block mb-1">
+                Balanceo diferido
+              </span>
+
+              <button
+                type="button"
+                onClick={alternarModoEstres}
+                disabled={cambiandoModoEstres}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-50 ${
+                  modoEstresActivo
+                    ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25 hover:bg-rose-600'
+                    : isDark
+                      ? 'bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-rose-500/40 hover:text-rose-400'
+                      : 'bg-white border border-zinc-200 text-zinc-700 hover:border-rose-300 hover:text-rose-600'
+                }`}
+              >
+                {cambiandoModoEstres ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5" />
+                )}
+                <span>{modoEstresActivo ? 'Desactivar Modo Estrés' : 'Activar Modo Estrés'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={recuperarBalance}
+                disabled={recuperando || nodeCount === 0}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-50 ${
+                  isDark
+                    ? 'bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-400'
+                    : 'bg-white border border-zinc-200 text-zinc-700 hover:border-emerald-300 hover:text-emerald-600'
+                }`}
+              >
+                {recuperando ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                )}
+                <span>Recuperar Balance</span>
+              </button>
+
+              {ultimaRecuperacion && (
+                <p className={`text-[10px] text-center pt-1 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                  Última recuperación ({ultimaRecuperacion.hora}):{' '}
+                  <strong className="text-emerald-500">
+                    {ultimaRecuperacion.rotaciones} rotación(es) aplicada(s)
+                  </strong>
+                </p>
               )}
             </div>
 
@@ -331,7 +615,7 @@ export const ArbolesPage = () => {
             }`}
           >
             <div className="flex items-center gap-2">
-              <CircleDot className="w-3.5 h-3.5 text-emerald-500" />
+              <CircleDot className={`w-3.5 h-3.5 ${error ? 'text-rose-500' : 'text-emerald-500'}`} />
               <span className="text-xs font-black uppercase tracking-wider">
                 {activeTree.toUpperCase()} Viewport
               </span>
@@ -409,7 +693,7 @@ export const ArbolesPage = () => {
                 className="w-full h-full flex items-center justify-center transition-transform duration-200"
                 style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
               >
-                <MockTreeSVG isDark={isDark} />
+                <DynamicTreeSVG topologia={topologia} isDark={isDark} />
               </div>
             )}
           </div>
@@ -425,9 +709,18 @@ export const ArbolesPage = () => {
               <span>Nodos: <strong>{nodeCount}</strong></span>
               <span>Altura: <strong>{treeHeight}</strong></span>
             </div>
-            <div className="flex items-center gap-1.5 text-emerald-500 font-sans font-bold">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Conectado</span>
+            <div className={`flex items-center gap-1.5 font-sans font-bold ${error ? 'text-rose-500' : 'text-emerald-500'}`}>
+              {error ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Sin conexión</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Conectado</span>
+                </>
+              )}
             </div>
           </div>
         </section>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, AlertTriangle, MapPin, Gauge, Layers, Radio } from 'lucide-react';
-import { sismosService } from '../../services/SismosServices';
+import { X, AlertTriangle, MapPin, Gauge, Layers, Radio, Hash, Clock } from 'lucide-react';
+import { sismosService, type CreateSeismicEventInput } from '../../services/SismosServices';
 import { StatusSismo, type SeismicEvent } from '../../models/Sismos';
 
 interface CreateSeismicEventModalProps {
@@ -18,7 +18,15 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
 }) => {
   const isDark = theme === 'dark';
 
+  // Local "now" formatted for <input type="datetime-local" step="1">
+  const ahoraLocal = () => {
+    const ahora = new Date();
+    return new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+  };
+
   const [formData, setFormData] = useState({
+    id: '' as number | '',
+    occurredAt: ahoraLocal(),
     magnitude: 4.5,
     depth: 15.0,
     latitude: 4.5709,
@@ -40,7 +48,7 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'stationId' ? value : value === '' ? '' : parseFloat(value),
+      [name]: name === 'stationId' || name === 'occurredAt' ? value : value === '' ? '' : parseFloat(value),
     }));
   };
 
@@ -54,6 +62,21 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
     const lat = roundToDecimals(Number(formData.latitude), 6);
     const lon = roundToDecimals(Number(formData.longitude), 6);
     const station = formData.stationId.trim();
+    const id = Number(formData.id);
+
+    // Section 3: integer id between 1 and 999999, entered by the user
+    if (!Number.isInteger(id) || id < 1 || id > 999999) {
+      setError('El identificador debe ser un entero entre 1 y 999999.');
+      setLoading(false);
+      return;
+    }
+
+    const occurred = new Date(formData.occurredAt);
+    if (isNaN(occurred.getTime())) {
+      setError('La fecha y hora de ocurrencia no es válida.');
+      setLoading(false);
+      return;
+    }
 
     if (isNaN(mag) || mag < -2.0 || mag > 10.0) {
       setError('La magnitud M debe estar entre -2.0 y 10.0.');
@@ -80,19 +103,21 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
     }
 
     try {
-      const payload = {
+      const payload: CreateSeismicEventInput = {
+        id,
         magnitude: mag,
         depth: depth,
         epicenter_x: lon,
         epicenter_y: lat,
-        timestamp: new Date().toISOString(),
+        // UTC with second precision, e.g. 2026-09-07T10:00:00Z
+        timestamp: occurred.toISOString().replace(/\.\d{3}Z$/, 'Z'),
         initial_station_id: station ? station : null, // Envía null si no hay estación
         revision: 1,
         reporting_stations: station ? [station] : [],
         status: StatusSismo.PENDIENTE,
       };
 
-      const createdEvent = await sismosService.create(payload as unknown as Partial<SeismicEvent>);
+      const createdEvent = await sismosService.create(payload);
       onEventCreated(createdEvent);
       onClose();
     } catch (err) {
@@ -143,6 +168,50 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
               {error}
             </div>
           )}
+
+          {/* Identificador y fecha/hora de ocurrencia (sección 3 y 6) */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
+                <Hash className="w-3.5 h-3.5 text-orange-500" /> Identificador (1 a 999999)
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="999999"
+                name="id"
+                placeholder="Ej: 10 → SIS-000010"
+                required
+                value={formData.id}
+                onChange={handleChange}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
+                  isDark
+                    ? 'bg-zinc-900/80 border border-zinc-800 text-zinc-200 focus:border-orange-500'
+                    : 'bg-zinc-50 border border-zinc-200 text-zinc-800 focus:border-orange-400'
+                }`}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-orange-500" /> Fecha y hora de ocurrencia
+              </label>
+              <input
+                type="datetime-local"
+                step="1"
+                name="occurredAt"
+                required
+                value={formData.occurredAt}
+                onChange={handleChange}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
+                  isDark
+                    ? 'bg-zinc-900/80 border border-zinc-800 text-zinc-200 focus:border-orange-500'
+                    : 'bg-zinc-50 border border-zinc-200 text-zinc-800 focus:border-orange-400'
+                }`}
+              />
+            </div>
+          </div>
 
           {/* Magnitud M y Profundidad H */}
           <div className="grid grid-cols-2 gap-4">
@@ -236,7 +305,24 @@ export const CreateSeismicEventModal: React.FC<CreateSeismicEventModalProps> = (
             </div>
           </div>
 
-          
+          {/* Estación que origina el registro */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 opacity-80 flex items-center gap-1">
+              <Radio className="w-3.5 h-3.5 text-orange-500" /> Estación emisora (id)
+            </label>
+            <input
+              type="text"
+              name="stationId"
+              placeholder="Ej: 1"
+              value={formData.stationId}
+              onChange={handleChange}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-xs transition-all focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
+                  isDark
+                    ? 'bg-zinc-900/80 border border-zinc-800 text-zinc-200 focus:border-orange-500'
+                    : 'bg-zinc-50 border border-zinc-200 text-zinc-800 focus:border-orange-400'
+                }`}
+            />
+          </div>
 
           {/* Botones de Acción */}
           <div className="flex items-center justify-end space-x-3 pt-4 border-t border-zinc-800/40">

@@ -3,6 +3,7 @@ import WelcomePage from './Pages/welcome/WelcomePage';
 import { EstacionesPage } from './Pages/stations/StationsPage';
 import { ObservatorioPage } from './Pages/observatorio/ObservatorioPage';
 import { ArbolesPage } from './Pages/arboles/ArbolesPage';
+import { ConsultarEventoPage } from './Pages/observatorio/ConsultarEventoPage';
 export default function App() {
   return (
     <BrowserRouter>
@@ -23,6 +24,11 @@ export default function App() {
         {/* Ruta principal de gestión de estaciones */}
         <Route path="/observatorio/arboles" 
         element={<ArbolesPage />} 
+         />
+
+        {/* Consulta de un evento por identificador (sección 6) */}
+        <Route path="/observatorio/consultar" 
+        element={<ConsultarEventoPage />} 
          />
       </Routes>
     </BrowserRouter>

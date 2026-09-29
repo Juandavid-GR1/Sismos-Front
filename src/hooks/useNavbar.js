@@ -9,13 +9,15 @@ export const useNavbar = () => {
 
   // Sub-secciones dentro del Observatorio
   const isArboles = path.includes('/arboles');
-  const isReportes = isObservatorio && !isArboles;
+  const isConsultar = path.includes('/consultar');
+  const isReportes = isObservatorio && !isArboles && !isConsultar;
 
   return {
     currentPath: path,
     isObservatorio,
     isEstaciones,
     isReportes,
-    isArboles
+    isArboles,
+    isConsultar
   };
 };
