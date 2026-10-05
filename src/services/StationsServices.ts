@@ -1,6 +1,7 @@
 import type { Location } from '../models/estaciones';
 
-const API_URL = import.meta.env.VITE_API_URL;
+import { API_URL } from './api';
+import { notificarAccionRegistrada } from './historialService';
 const ENDPOINT = `${API_URL}/estaciones`;
 
 export const estacionesService = {
@@ -28,6 +29,7 @@ export const estacionesService = {
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Error al crear la estación');
+    notificarAccionRegistrada();
     return response.json();
   },
 
@@ -41,6 +43,7 @@ export const estacionesService = {
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error(`Error al actualizar la estación con id ${id}`);
+    notificarAccionRegistrada();
     return response.json();
   },
 
@@ -50,5 +53,6 @@ export const estacionesService = {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error(`Error al eliminar la estación con id ${id}`);
+    notificarAccionRegistrada();
   },
 };

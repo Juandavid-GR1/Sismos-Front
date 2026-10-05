@@ -7,18 +7,23 @@ import {
   Layers,
   Calendar,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2,
+  GitBranch,
+  Lock
 } from 'lucide-react';
 import { sismosService } from '../../services/SismosServices';
 
-// Helper: Formatear fecha para input datetime-local (YYYY-MM-DDTHH:mm)
+// Helper: format a date for <input type="datetime-local" step="1">
+// (YYYY-MM-DDTHH:mm:ss). Seconds are kept: the model has second precision
+// and dropping them would turn every correction into a time change.
 const formatDateForInput = (rawDate) => {
   if (!rawDate) return '';
   try {
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return '';
     const tzOffset = d.getTimezoneOffset() * 60000;
-    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 19);
   } catch (e) {
     console.error('Error al formatear fecha:', e);
     return '';
@@ -54,6 +59,8 @@ export const EditSismoModal = ({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Report returned by the backend after a correction (section 6)
+  const [resultado, setResultado] = useState(null);
 
   // Carga e inicialización de los datos del sismo
   useEffect(() => {
@@ -70,6 +77,7 @@ export const EditSismoModal = ({
         timestamp: formatDateForInput(rawDate)
       });
       setError(null);
+      setResultado(null);
     }
   }, [sismo, isOpen]);
 
@@ -116,25 +124,29 @@ export const EditSismoModal = ({
       return;
     }
 
-    // Payload sin 'location' (Backend requiere epicenter_x y epicenter_y)
+    // The id is NOT sent: it is immutable. If the date is left empty the
+    // current one is kept (the backend accepts partial corrections).
     const payload = {
       magnitude,
       depth,
       epicenter_x: longitude,
       epicenter_y: latitude,
-      timestamp: formData.timestamp
-        ? new Date(formData.timestamp).toISOString()
-        : new Date().toISOString()
+      ...(formData.timestamp
+        ? { timestamp: new Date(formData.timestamp).toISOString().replace(/\.\d{3}Z$/, 'Z') }
+        : {})
     };
 
     try {
       setLoading(true);
       const response = await sismosService.update(sismoId, payload);
 
+      // Refresh list / map right away; the modal stays open to explain
+      // what the correction did (revision, key, tree action).
       if (onSave) {
         await onSave(response?.sismo ?? response);
       }
-      onClose();
+      setResultado(response?.correccion ?? null);
+      if (!response?.correccion) onClose();
     } catch (err) {
       console.error('Error actualizando sismo:', err);
       setError(err instanceof Error ? err.message : 'Error al actualizar el sismo');
@@ -172,8 +184,8 @@ export const EditSismoModal = ({
             </div>
             <div>
               <h2 className="text-sm font-bold">Editar Evento Sísmico</h2>
-              <p className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                ID: #{formData.id || 'N/A'}
+              <p className={`text-[11px] flex items-center gap-1 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                <Lock className="w-3 h-3" /> ID: #{formData.id || 'N/A'} (inmutable)
               </p>
             </div>
           </div>
@@ -192,7 +204,10 @@ export const EditSismoModal = ({
           </button>
         </div>
 
-        {/* Formulario */}
+        {resultado ? (
+          <ResultadoCorreccion resultado={resultado} isDark={isDark} onClose={onClose} />
+        ) : (
+        /* Formulario */
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center space-x-2">
@@ -317,6 +332,7 @@ export const EditSismoModal = ({
               <Calendar className="w-4 h-4 absolute left-3 top-2.5 text-zinc-400" />
               <input
                 type="datetime-local"
+                step="1"
                 id="edit-sismo-timestamp"
                 name="timestamp"
                 value={formData.timestamp}
@@ -364,6 +380,106 @@ export const EditSismoModal = ({
             </button>
           </div>
         </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Correction report (section 6: "the interface must communicate which
+// operation happened and why it produced that result")
+// ============================================================
+const formatoClave = (clave) => (clave ? `(${clave.join(', ')})` : '—');
+
+const NOMBRES_CAMPO = {
+  magnitude: 'magnitud',
+  depth: 'profundidad',
+  epicenter_x: 'longitud',
+  epicenter_y: 'latitud',
+  timestamp: 'fecha/hora'
+};
+
+const ResultadoCorreccion = ({ resultado, isDark, onClose }) => {
+  const arbol = resultado.arbol;
+  const giros = arbol ? arbol.rotaciones.giros.izquierda + arbol.rotaciones.giros.derecha : 0;
+  const casos = arbol
+    ? Object.entries(arbol.rotaciones.casos).filter(([, n]) => n > 0).map(([c, n]) => `${c}×${n}`)
+    : [];
+  const fila = `flex justify-between gap-3 py-1.5 border-b ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`;
+  const etiqueta = isDark ? 'text-zinc-400' : 'text-zinc-500';
+
+  return (
+    <div className="p-6 space-y-4 text-xs">
+      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex gap-2">
+        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+        <span>{resultado.explicacion}</span>
+      </div>
+
+      <div>
+        <div className={fila}>
+          <span className={etiqueta}>Revisión</span>
+          <span className="font-bold">{resultado.revision_anterior} → {resultado.revision_nueva}</span>
+        </div>
+        <div className={fila}>
+          <span className={etiqueta}>Datos modificados</span>
+          <span className="font-bold text-right">
+            {resultado.campos_modificados.length
+              ? resultado.campos_modificados.map((c) => NOMBRES_CAMPO[c] ?? c).join(', ')
+              : 'ninguno (igual se genera nueva revisión)'}
+          </span>
+        </div>
+        <div className={fila}>
+          <span className={etiqueta}>Zona poblada</span>
+          <span className="font-bold">{resultado.zona_poblada == null ? '—' : resultado.zona_poblada ? 'Sí' : 'No'}</span>
+        </div>
+        <div className={fila}>
+          <span className={etiqueta}>Prioridad</span>
+          <span className="font-bold">{resultado.prioridad_anterior} → {resultado.prioridad_nueva}</span>
+        </div>
+        <div className={fila}>
+          <span className={etiqueta}>Clave K = (P, M, I)</span>
+          <span className="font-mono font-bold">
+            {formatoClave(resultado.clave_anterior)} → {formatoClave(resultado.clave_nueva)}
+          </span>
+        </div>
+        <div className={fila}>
+          <span className={etiqueta}>Estado</span>
+          <span className="font-bold">{resultado.estado_anterior} → {resultado.estado_nuevo}</span>
+        </div>
+      </div>
+
+      {arbol && (
+        <div className={`p-3 rounded-xl border space-y-1.5 ${isDark ? 'border-zinc-800 bg-zinc-950/50' : 'border-zinc-200 bg-zinc-50'}`}>
+          <div className="flex items-center gap-1.5 font-bold text-orange-500">
+            <GitBranch className="w-3.5 h-3.5" />
+            {arbol.accion_arbol === 'reinsercion'
+              ? 'Retirado con la clave anterior y reinsertado con la nueva'
+              : 'Sin eliminar ni reinsertar (misma clave)'}
+            {arbol.modo_estres && <span className="ml-1 text-amber-500">· modo estrés</span>}
+          </div>
+          <div className={etiqueta}>
+            Profundidad del nodo: {arbol.profundidad_antes} → {arbol.profundidad_despues} ·
+            Rotaciones: {giros === 0 ? 'ninguna' : `${casos.join(', ')} (${giros} giro${giros === 1 ? '' : 's'})`}
+          </div>
+          <div className={etiqueta}>
+            Orden verificado con sus vecinos en inorden:{' '}
+            {arbol.verificacion_orden.predecesor ? `${formatoClave(arbol.verificacion_orden.predecesor)} < ` : '(es el menor) '}
+            <b>{formatoClave(arbol.verificacion_orden.clave)}</b>
+            {arbol.verificacion_orden.sucesor ? ` < ${formatoClave(arbol.verificacion_orden.sucesor)}` : ' (es el mayor)'}{' '}
+            {arbol.verificacion_orden.valido ? '✓' : '✗'}
+          </div>
+        </div>
+      )}
+
+      <div className="pt-2 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-xs font-bold rounded-xl bg-orange-500 hover:bg-orange-600 text-white"
+        >
+          Cerrar
+        </button>
       </div>
     </div>
   );

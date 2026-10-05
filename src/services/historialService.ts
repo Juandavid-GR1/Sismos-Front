@@ -17,6 +17,16 @@ export const notificarCambioDeEstado = (): void => {
   window.dispatchEvent(new Event(EVENTO_ESTADO_CAMBIADO));
 };
 
+// Lighter event: an action was recorded in the backend (create, correct,
+// process a report...). The page that did it already updated itself, so
+// only the undo counter needs to reload. This replaces polling /historial
+// every 3 seconds.
+export const EVENTO_ACCION_REGISTRADA = 'sismolab:accion-registrada';
+
+export const notificarAccionRegistrada = (): void => {
+  window.dispatchEvent(new Event(EVENTO_ACCION_REGISTRADA));
+};
+
 export const historialService = {
   listar: async (): Promise<AccionHistorial[]> => {
     const response = await fetch(ENDPOINT);

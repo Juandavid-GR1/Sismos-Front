@@ -16,6 +16,8 @@ import {
 
 import { sismosService } from '../../services/SismosServices';
 import { EventoDetalleModal } from './EventoDetalleModal';
+import { useAccionRegistrada } from '../../hooks/useEstadoCambiado';
+import { notificarAccionRegistrada } from '../../services/historialService';
 
 /**
  * Extrae y normaliza el identificador numérico de un objeto de sismo.
@@ -110,13 +112,13 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
     if (!station) return;
 
     cargarSismos(true);
-
-    const intervalId = setInterval(() => {
-      cargarSismos(false);
-    }, 3000);
-
-    return () => clearInterval(intervalId);
   }, [station, cargarSismos]);
+
+  // Before: GET /sismos every 3 seconds while the panel was open. Now the
+  // list reloads only when an action changes the scenario.
+  useAccionRegistrada(() => {
+    if (station) cargarSismos(false);
+  });
 
   const prepararReporte = (sismo) => {
     setSismoParaReportar(sismo);
@@ -162,6 +164,7 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
       });
 
       const data = await response.json().catch(() => null);
+      if (response.ok) notificarAccionRegistrada();
 
       if (!response.ok) {
         throw new Error(
@@ -261,6 +264,7 @@ export const StationDetailPanel = ({ station, theme, onClose }) => {
       });
 
       const data = await response.json().catch(() => null);
+      if (response.ok) notificarAccionRegistrada();
 
       if (!response.ok) {
         throw new Error(

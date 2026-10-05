@@ -20,7 +20,6 @@ import { CreateSeismicEventModal } from '../../components/modals/CreateSeismicEv
 import { EditSismoModal } from '../../components/modals/EditSismoModal';
 
 // Hooks y Servicios
-import { useSimulationClock } from '../../hooks/SimulationClock';
 import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
 import { estacionesService } from '../../services/StationsServices';
 import { sismosService } from '../../services/SismosServices';
@@ -52,7 +51,6 @@ export const EstacionesPage = () => {
   // ============================================================
   // RELOJ DE SIMULACIÓN
   // ============================================================
-  const { time, isRunning, setIsRunning } = useSimulationClock();
 
   // ============================================================
   // EVENTOS SÍSMICOS
@@ -269,13 +267,8 @@ export const EstacionesPage = () => {
             </div>
           )}
 
-          {/* RELOJ */}
-          <SimulationClock
-            theme={theme}
-            time={time}
-            isRunning={isRunning}
-            onTogglePlay={() => setIsRunning(!isRunning)}
-          />
+          {/* RELOJ DEL ESCENARIO (backend /reloj, sección 3) */}
+          <SimulationClock theme={theme} />
 
           {/* MAPA */}
           <SeismicMap
