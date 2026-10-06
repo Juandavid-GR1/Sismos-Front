@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { 
   Activity, 
   Search, 
@@ -9,11 +9,13 @@ import {
   Eye, 
   FileText, 
   GitFork,
+  BarChart3,
   Command 
 } from 'lucide-react';
 import { useNavbar } from '../hooks/useNavbar';
 import { ThemeToggle } from './buttons/ThemeToggle';
 import { UndoButton } from './buttons/UndoButton';
+import { SECCIONES_ANALISIS } from '../Pages/analisis/secciones';
 
 export const Navbar = ({
   theme,
@@ -23,7 +25,7 @@ export const Navbar = ({
   onSearchChange
 }) => {
   const isDark = theme === 'dark';
-  const { isObservatorio, isEstaciones, isReportes, isArboles, isConsultar } = useNavbar();
+  const { isObservatorio, isEstaciones, isAnalisis, isReportes, isArboles, isConsultar } = useNavbar();
 
   return (
     <header
@@ -95,6 +97,20 @@ export const Navbar = ({
           >
             <Eye className={`w-3.5 h-3.5 transition-transform duration-300 ${isObservatorio ? 'scale-110' : ''}`} />
             <span>Observatorio</span>
+          </Link>
+
+          <Link
+            to="/analisis"
+            className={`relative flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all duration-300 ${
+              isAnalisis
+                ? 'text-orange-500 bg-orange-500/10 border border-orange-500/25 shadow-sm shadow-orange-500/10'
+                : isDark
+                  ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/80'
+            }`}
+          >
+            <BarChart3 className={`w-3.5 h-3.5 transition-transform duration-300 ${isAnalisis ? 'scale-110' : ''}`} />
+            <span>Análisis</span>
           </Link>
         </nav>
       </div>
@@ -186,6 +202,36 @@ export const Navbar = ({
             <span>Consultar</span>
           </Link>
         </div>
+      )}
+
+      {/* Opción C: Modo Análisis -> Sub-Navbar con las pestañas de secciones.js */}
+      {isAnalisis && (
+        <nav className={`flex items-center p-1 rounded-2xl border overflow-x-auto max-w-[50vw] transition-all duration-300 ${
+          isDark ? 'bg-zinc-900/70 border-zinc-800/80 shadow-inner' : 'bg-zinc-100/80 border-zinc-200 shadow-inner'
+        }`}>
+          {SECCIONES_ANALISIS.map(({ ruta, etiqueta, icono: Icono }) => (
+            <NavLink
+              key={ruta}
+              to={`/analisis/${ruta}`}
+              title={etiqueta}
+              className={({ isActive }) => `relative flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all duration-300 ${
+                isActive
+                  ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-500/20'
+                  : isDark
+                    ? 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40'
+                    : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50'
+              }`}
+            >
+              {({ isActive }) => (
+                <>
+                  <Icono className="w-3.5 h-3.5" />
+                  {/* The active tab always shows its name; the others only on wide screens (tooltip otherwise) */}
+                  <span className={isActive ? 'inline' : 'hidden 2xl:inline'}>{etiqueta}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
       )}
 
       {/* 3. ACCIONES Y ACCESOS DEL USUARIO */}

@@ -7,6 +7,10 @@ import React, {
 
 import { Navbar } from '../../components/Navbar';
 import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
+import { useTema } from '../../hooks/useTema';
+import { useCarga } from '../../hooks/useCarga';
+import { construirDecision } from '../../utils/decisionesCola';
+import { arbolService } from '../../services/arbolService';
 import { EventAnalyzer } from '../../components/observatorio/EventAnalyzer';
 import { EventQueue } from '../../components/observatorio/EventQueue';
 import { MetricBar } from '../../components/observatorio/MetricBar';
@@ -105,107 +109,21 @@ const adaptarCola = (cola) => {
   });
 };
 
-/**
- * Convierte las decisiones internas del backend
- * en mensajes comprensibles para el usuario.
- */
-const obtenerMensajeDecision = (
-  decision,
-  detalle
-) => {
-  switch (decision) {
-    case 'correccion':
-      return {
-        titulo: 'Reporte procesado correctamente',
-        mensaje:
-          detalle ||
-          'Se aplicó una corrección al evento sísmico.',
-        tipo: 'success',
-      };
-
-    case 'confirmacion':
-      return {
-        titulo: 'Reporte confirmado',
-        mensaje:
-          detalle ||
-          'El reporte confirma la información existente del evento.',
-        tipo: 'success',
-      };
-
-    case 'alta':
-      return {
-        titulo: 'Evento nuevo registrado',
-        mensaje:
-          detalle ||
-          'El identificador era desconocido: se registró un evento nuevo a partir del reporte.',
-        tipo: 'success',
-      };
-
-    case 'reporte_antiguo':
-      return {
-        titulo: 'Reporte inválido para reportar',
-        mensaje:
-          detalle ||
-          'El reporte corresponde a una revisión anterior y fue rechazado.',
-        tipo: 'warning',
-      };
-
-    case 'conflicto':
-      return {
-        titulo: 'Reporte inválido para reportar',
-        mensaje:
-          detalle ||
-          'El reporte entra en conflicto con la información registrada para esta revisión.',
-        tipo: 'warning',
-      };
-
-    case 'identificador_retirado':
-      return {
-        titulo: 'Identificador retirado',
-        mensaje:
-          detalle ||
-          'Este identificador fue eliminado y está retirado: no puede reactivarse mediante un reporte.',
-        tipo: 'warning',
-      };
-
-    case 'datos_invalidos':
-      return {
-        titulo: 'Reporte rechazado por datos inválidos',
-        mensaje:
-          detalle ||
-          'El reporte contenía datos fuera de rango y fue retirado de la cola.',
-        tipo: 'warning',
-      };
-
-    case 'ruido':
-      return {
-        titulo: 'Reporte descartado',
-        mensaje:
-          detalle ||
-          'El reporte fue descartado como ruido instrumental.',
-        tipo: 'warning',
-      };
-
-    default:
-      return {
-        titulo: 'Reporte procesado',
-        mensaje:
-          detalle ||
-          'El reporte fue procesado por el sistema.',
-        tipo: 'info',
-      };
-  }
-};
-
 export const ObservatorioPage = () => {
   // ---------------------------------------------------------
   // CONFIGURACIÓN Y TEMA
   // ---------------------------------------------------------
 
-  const [theme, setTheme] = useState('dark');
+  const { theme, isDark, alternarTema } = useTema();
 
-  const [stressMode, setStressMode] =
-    useState(false);
+  // Stress mode and active events come from the backend (section 8 / 14).
+  // Before, the button only changed a local variable.
+  // Only /arbol/metricas is needed here (1 request instead of the 3 that
+  // the full section 14 indicators may need).
+  const indicadores = useCarga(arbolService.metricas);
+  const recargarIndicadores = indicadores.recargar;
+  const stressMode = indicadores.datos?.modoEstres ?? false;
+  const [cambiandoEstres, setCambiandoEstres] = useState(false);
 
   // ---------------------------------------------------------
   // DATOS DE EVENTOS
@@ -256,8 +174,6 @@ export const ObservatorioPage = () => {
     intervaloAutomatico,
     setIntervaloAutomatico,
   ] = useState(3);
-
-  const isDark = theme === 'dark';
 
   // ---------------------------------------------------------
   // CARGAR COLA
@@ -358,64 +274,53 @@ export const ObservatorioPage = () => {
   };
 
   // ---------------------------------------------------------
-  // RECHAZAR REPORTE
+  // RESULTADO DE UN PASO (manual o automático)
+  // ---------------------------------------------------------
+
+  /**
+   * Shows the decision of one queue step (with the AVL rotations it
+   * caused) and reloads the queue selecting the new front.
+   */
+  const mostrarResultadoPaso = useCallback(async (resultado, seleccionarSiguiente = false) => {
+    setDecision(construirDecision(resultado));
+    setError(null);
+    setSelectedEvent(null);
+    // Manual step: nothing selected, so the analyzer shows the decision.
+    // Automatic mode: the next front is selected, as before.
+    await cargarCola(seleccionarSiguiente, false);
+    recargarIndicadores();
+  }, [cargarCola, recargarIndicadores]);
+
+  /**
+   * Errors of a step: a business rejection (409 / 400 with `decision`) is
+   * shown as a decision, anything else as an error after resynchronizing
+   * the queue (it may have changed, e.g. it was already empty).
+   */
+  const mostrarErrorPaso = useCallback(async (err, mensajePorDefecto) => {
+    if (err?.decision) {
+      await mostrarResultadoPaso(err);
+      return;
+    }
+    console.error(mensajePorDefecto, err);
+    await cargarCola(true, false);
+    setError(err?.message || mensajePorDefecto);
+  }, [cargarCola, mostrarResultadoPaso]);
+
+  // ---------------------------------------------------------
+  // RECHAZAR REPORTE (ruido instrumental)
   // ---------------------------------------------------------
 
   const handleReject = async () => {
-    if (!selectedEvent || processing) {
+    if (!selectedEvent || processing || !verificarEsElFrente()) {
       return;
     }
-
-    if (!verificarEsElFrente()) {
-      return;
-    }
-
     try {
       setProcessing(true);
       setDecision(null);
-      setError(null);
-
-      const resultado =
-        await descartarReporte();
-
-      const decisionFormateada =
-        obtenerMensajeDecision(
-          resultado.decision || 'ruido',
-          resultado.detalle_decision ||
-            resultado.mensaje
-        );
-
-      setDecision({
-        tipo:
-          resultado.decision || 'ruido',
-
-        titulo:
-          decisionFormateada.titulo,
-
-        mensaje:
-          decisionFormateada.mensaje,
-
-        tipoVisual:
-          decisionFormateada.tipo,
-      });
-
-      setSelectedEvent(null);
-
-      await cargarCola(false, false);
+      const resultado = await descartarReporte();
+      await mostrarResultadoPaso({ ...resultado, decision: resultado.decision || 'ruido' });
     } catch (err) {
-      console.error(
-        'Error al descartar el reporte:',
-        err
-      );
-
-      // La cola del backend pudo haber cambiado (ej. ya estaba
-      // vacía): se resincroniza antes de mostrar el error.
-      await cargarCola(true, false);
-
-      setError(
-        err.message ||
-          'Ocurrió un error al descartar el reporte.'
-      );
+      await mostrarErrorPaso(err, 'Ocurrió un error al descartar el reporte.');
     } finally {
       setProcessing(false);
     }
@@ -426,279 +331,68 @@ export const ObservatorioPage = () => {
   // ---------------------------------------------------------
 
   const handleApprove = async () => {
-    if (!selectedEvent || processing) {
+    if (!selectedEvent || processing || !verificarEsElFrente()) {
       return;
     }
-
-    if (!verificarEsElFrente()) {
-      return;
-    }
-
     try {
       setProcessing(true);
       setDecision(null);
-      setError(null);
-
-      const resultado =
-        await validarYEmitirReporte();
-
-      const decisionFormateada =
-        obtenerMensajeDecision(
-          resultado.decision,
-          resultado.detalle_decision ||
-            resultado.mensaje
-        );
-
-      setDecision({
-        tipo: resultado.decision,
-
-        titulo:
-          decisionFormateada.titulo,
-
-        mensaje:
-          decisionFormateada.mensaje,
-
-        tipoVisual:
-          decisionFormateada.tipo,
-      });
-
-      setSelectedEvent(null);
-
-      await cargarCola(false, false);
+      await mostrarResultadoPaso(await validarYEmitirReporte());
     } catch (err) {
-      console.error(
-        'Error al emitir el reporte:',
-        err
-      );
-
-      if (err.decision) {
-        const decisionFormateada =
-          obtenerMensajeDecision(
-            err.decision,
-            err.detalle_decision ||
-              err.mensaje ||
-              err.message
-          );
-
-        setDecision({
-          tipo: err.decision,
-
-          titulo:
-            decisionFormateada.titulo,
-
-          mensaje:
-            decisionFormateada.mensaje,
-
-          tipoVisual:
-            decisionFormateada.tipo,
-        });
-
-        setError(null);
-
-        setSelectedEvent(null);
-
-        await cargarCola(false, false);
-      } else {
-        // Error sin decisión de negocio (ej. 404 "no hay reportes
-        // pendientes"): la cola del backend pudo haber cambiado sin
-        // que la pantalla lo sepa. Se resincroniza ANTES de mostrar
-        // el error (cargarCola limpia el error al empezar).
-        await cargarCola(true, false);
-
-        setError(
-          err.message ||
-            'Ocurrió un error al emitir el reporte.'
-        );
-      }
+      await mostrarErrorPaso(err, 'Ocurrió un error al emitir el reporte.');
     } finally {
       setProcessing(false);
     }
   };
 
   // ---------------------------------------------------------
-  // PROCESAMIENTO AUTOMÁTICO
+  // MODO AUTOMÁTICO
   // ---------------------------------------------------------
 
-  const procesarAutomaticamente =
-    useCallback(async () => {
-      if (processing) {
-        return;
-      }
+  /**
+   * Receives the result of POST /reportes/cola/automatico, which ALREADY
+   * processed one report. Before, this callback called "validar" again,
+   * so every tick processed two reports.
+   */
+  const manejarResultadoAutomatico = useCallback(async (resultado) => {
+    if (!resultado || resultado.decision === 'cola_vacia' || resultado.procesado === false) {
+      setDecision(construirDecision({ decision: 'cola_vacia' }));
+      await cargarCola(true, false);
+      return;
+    }
+    await mostrarResultadoPaso(resultado, true);
+  }, [cargarCola, mostrarResultadoPaso]);
 
-      try {
-        setProcessing(true);
-        setDecision(null);
-        setError(null);
+  const manejarErrorAutomatico = useCallback(
+    (err) => mostrarErrorPaso(err, 'Error durante el procesamiento automático.'),
+    [mostrarErrorPaso]
+  );
 
-        const cola =
-          await obtenerColaReportes();
-
-        if (!cola || cola.length === 0) {
-          setPendingEvents([]);
-          setSelectedEvent(null);
-          return;
-        }
-
-        const eventosAdaptados =
-          adaptarCola(cola);
-
-        setPendingEvents(
-          eventosAdaptados
-        );
-
-        const primerReporte =
-          eventosAdaptados[0];
-
-        setSelectedEvent(
-          primerReporte
-        );
-
-        const resultado =
-          await validarYEmitirReporte();
-
-        const decisionFormateada =
-          obtenerMensajeDecision(
-            resultado.decision,
-            resultado.detalle_decision ||
-              resultado.mensaje
-          );
-
-        setDecision({
-          tipo: resultado.decision,
-
-          titulo:
-            decisionFormateada.titulo,
-
-          mensaje:
-            decisionFormateada.mensaje,
-
-          tipoVisual:
-            decisionFormateada.tipo,
-        });
-
-        const nuevaCola =
-          await obtenerColaReportes();
-
-        const nuevosEventos =
-          adaptarCola(nuevaCola);
-
-        setPendingEvents(
-          nuevosEventos
-        );
-
-        setSelectedEvent(
-          nuevosEventos[0] || null
-        );
-      } catch (err) {
-        /**
-         * Algunas decisiones del backend representan
-         * decisiones normales del negocio:
-         *
-         * - reporte_antiguo
-         * - conflicto
-         * - ruido
-         * - identificador_retirado
-         *
-         * Por eso no las mostramos como errores técnicos.
-         */
-        if (err.decision) {
-          const decisionFormateada =
-            obtenerMensajeDecision(
-              err.decision,
-              err.detalle_decision ||
-                err.mensaje ||
-                err.message
-            );
-
-          setDecision({
-            tipo: err.decision,
-
-            titulo:
-              decisionFormateada.titulo,
-
-            mensaje:
-              decisionFormateada.mensaje,
-
-            tipoVisual:
-              decisionFormateada.tipo,
-          });
-
-          setError(null);
-
-          try {
-            const nuevaCola =
-              await obtenerColaReportes();
-
-            const nuevosEventos =
-              adaptarCola(nuevaCola);
-
-            setPendingEvents(
-              nuevosEventos
-            );
-
-            setSelectedEvent(
-              nuevosEventos[0] || null
-            );
-          } catch (refreshError) {
-            console.error(
-              'Error actualizando cola:',
-              refreshError
-            );
-          }
-        } else {
-          console.error(
-            'Error en procesamiento automático:',
-            err
-          );
-
-          setError(
-            err.message ||
-              'Error durante el procesamiento automático.'
-          );
-        }
-      } finally {
-        setProcessing(false);
-      }
-    }, [processing]);
+  const activarModoAutomatico = useCallback((segundos) => {
+    detenerModoAutomatico();
+    setIntervaloAutomatico(segundos);
+    setModoAutomatico(true);
+    setMostrarModalAutomatico(false);
+    setDecision(null);
+    iniciarModoAutomatico(segundos, manejarResultadoAutomatico, manejarErrorAutomatico);
+  }, [manejarResultadoAutomatico, manejarErrorAutomatico]);
 
   // ---------------------------------------------------------
-  // ACTIVAR MODO AUTOMÁTICO
+  // MODO ESTRÉS (backend)
   // ---------------------------------------------------------
 
-  const activarModoAutomatico =
-    useCallback(
-      (segundos) => {
-        try {
-          detenerModoAutomatico();
-
-          setIntervaloAutomatico(
-            segundos
-          );
-
-          setModoAutomatico(true);
-
-          setMostrarModalAutomatico(
-            false
-          );
-
-          iniciarModoAutomatico(
-            segundos,
-            procesarAutomaticamente
-          );
-        } catch (err) {
-          console.error(
-            'Error activando modo automático:',
-            err
-          );
-
-          setError(
-            err.message ||
-              'No se pudo activar el modo automático.'
-          );
-        }
-      },
-      [procesarAutomaticamente]
-    );
+  const alternarModoEstres = async () => {
+    try {
+      setCambiandoEstres(true);
+      setError(null);
+      await arbolService.modoEstres(!stressMode);
+    } catch (err) {
+      // 409: cannot leave stress mode while the tree is unbalanced
+      setError(err.message);
+    } finally {
+      setCambiandoEstres(false);
+    }
+  };
 
   // ---------------------------------------------------------
   // DETENER MODO AUTOMÁTICO
@@ -737,17 +431,13 @@ export const ObservatorioPage = () => {
     >
       <Navbar
         theme={theme}
-        onToggleTheme={() =>
-          setTheme(
-            isDark ? 'light' : 'dark'
-          )
-        }
+        onToggleTheme={alternarTema}
       />
 
       <MetricBar
         isDark={isDark}
-        networkStatus="OPERATIVA (98%)"
-        todayEventsCount={14}
+        networkStatus={indicadores.error ? 'SIN CONEXIÓN' : stressMode ? 'MODO ESTRÉS' : 'OPERATIVA'}
+        activeEventsCount={indicadores.datos?.cantidadNodos ?? '—'}
         pendingCount={
           pendingEvents.length
         }
@@ -812,11 +502,9 @@ export const ObservatorioPage = () => {
 
             <button
               type="button"
-              onClick={() =>
-                setStressMode(
-                  (prev) => !prev
-                )
-              }
+              onClick={alternarModoEstres}
+              disabled={cambiandoEstres}
+              title="Inserciones sin rotaciones hasta recuperar el balance (ver Árboles)"
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-md transition-all border shadow-sm flex items-center gap-2 ${
                 stressMode
                   ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-rose-950/50 animate-pulse'

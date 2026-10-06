@@ -1,6 +1,7 @@
 import { StatusSismo, type SeismicEvent } from '../models/Sismos';
 
-const API_URL = import.meta.env.VITE_API_URL;
+import { API_URL } from './api';
+import { notificarAccionRegistrada } from './historialService';
 const ENDPOINT = `${API_URL}/sismos`;
 
 // Tipo helper para omitir la 'id' en creaciones (el backend suele asignarla)
@@ -52,6 +53,7 @@ export const sismosService = {
       const detalle = await response.json().catch(() => null);
       throw new Error(detalle?.message || detalle?.error || 'Error al registrar el sismo');
     }
+    notificarAccionRegistrada();
     return response.json();
   },
 
@@ -76,6 +78,7 @@ export const sismosService = {
       const detalle = await response.json().catch(() => null);
       throw new Error(detalle?.message || detalle?.error || `Error al actualizar el sismo #${id}`);
     }
+    notificarAccionRegistrada();
     return response.json();
   },
 
@@ -87,6 +90,7 @@ export const sismosService = {
     if (!response.ok) {
       throw new Error(data?.message || data?.error || `No se pudo marcar el sismo #${id} como revisado`);
     }
+    notificarAccionRegistrada();
     return data;
   },
 
@@ -96,5 +100,6 @@ export const sismosService = {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error(`Error al eliminar el sismo #${id}`);
+    notificarAccionRegistrada();
   },
 };

@@ -6,6 +6,7 @@ export const useNavbar = () => {
 
   const isObservatorio = path.startsWith('/observatorio');
   const isEstaciones = path.startsWith('/estaciones') || path === '/';
+  const isAnalisis = path.startsWith('/analisis');
 
   // Sub-secciones dentro del Observatorio
   const isArboles = path.includes('/arboles');
@@ -16,6 +17,7 @@ export const useNavbar = () => {
     currentPath: path,
     isObservatorio,
     isEstaciones,
+    isAnalisis,
     isReportes,
     isArboles,
     isConsultar

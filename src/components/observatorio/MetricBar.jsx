@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bell, Activity, Radio } from 'lucide-react';
 
-export const MetricBar = ({ isDark, networkStatus, todayEventsCount, pendingCount }) => {
+export const MetricBar = ({ isDark, networkStatus, activeEventsCount, pendingCount }) => {
   return (
     <section className={`px-6 py-3 border-b flex items-center justify-between text-xs font-mono transition-colors duration-500 backdrop-blur-xl ${
       isDark 
@@ -21,8 +21,8 @@ export const MetricBar = ({ isDark, networkStatus, todayEventsCount, pendingCoun
           isDark ? 'bg-orange-500/10 border-orange-500/20' : 'bg-orange-50 border-orange-200'
         }`}>
           <Activity className="w-3.5 h-3.5 text-orange-500" />
-          <span className={isDark ? 'text-zinc-400' : 'text-zinc-600'}>Sismos Hoy:</span>
-          <span className="font-bold text-orange-600 dark:text-orange-500">{todayEventsCount}</span>
+          <span className={isDark ? 'text-zinc-400' : 'text-zinc-600'}>Eventos activos:</span>
+          <span className="font-bold text-orange-600 dark:text-orange-500">{activeEventsCount}</span>
         </div>
       </div>
 
@@ -32,7 +32,7 @@ export const MetricBar = ({ isDark, networkStatus, todayEventsCount, pendingCoun
           : 'bg-red-50 border-red-200 text-red-600 shadow-sm'
       }`}>
         <Bell className="w-3.5 h-3.5 animate-bounce text-red-500" />
-        <span>Cola Sin Revisar: {pendingCount} eventos</span>
+        <span>Reportes en cola: {pendingCount}</span>
       </div>
     </section>
   );
