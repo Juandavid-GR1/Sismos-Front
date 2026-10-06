@@ -1,206 +1,181 @@
-import React, { useState } from 'react';
-import {
-  Search,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  GitBranch,
-  SlidersHorizontal,
-  Activity,
-  MapPin,
-  XCircle
-} from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Search, Link2, XCircle, Pencil, CheckCheck, Archive, Trash2 } from 'lucide-react';
 
 import { Navbar } from '../../components/Navbar';
+import { Aviso } from '../../components/ui/Aviso';
+import { Boton } from '../../components/ui/Boton';
+import { EstadoBadge, PrioridadBadge } from '../../components/ui/EstadoBadge';
+import { FichaEvento, Seccion } from '../../components/consulta/FichaEvento';
+import { AsociacionesEvento } from '../../components/consulta/AsociacionesEvento';
+import { EditSismoModal } from '../../components/modals/EditSismoModal';
+import { useTema } from '../../hooks/useTema';
+import { useCarga } from '../../hooks/useCarga';
+import { consultasService } from '../../services/consultasService';
+import { sismosService } from '../../services/SismosServices';
+import { notificarCambioDeEstado } from '../../services/historialService';
+
+const NOTA_ESTADO = {
+  archivado: 'El evento salió del árbol activo al archivar su rama. Un reporte nuevo para este id lo confirma o lo reactiva.',
+  retirado: 'El evento fue retirado del árbol activo.',
+};
 
 /**
- * Página de "Consulta de un evento" (sección 6 del enunciado):
- * "El usuario podrá localizar un evento mediante su identificador...
- * El resultado debe indicar si está activo, archivado o eliminado."
- *
- * Es una búsqueda DIRECTA por id -- no depende de navegar a una
- * estación específica primero, a diferencia del botón "ⓘ" dentro de
- * StationDetailPanel (que solo lista sismos de una estación).
+ * Section 6: locate an event by its id, whatever happened to it.
+ * The answer says whether it is active, archived, retired or deleted.
+ * Active events can be marked as reviewed or corrected from here.
+ * The id can also come in the URL (?id=123) from tables and the tree.
  */
 export const ConsultarEventoPage = () => {
-  const [theme, setTheme] = useState('dark');
-  const [idBusqueda, setIdBusqueda] = useState('');
-  const [buscando, setBuscando] = useState(false);
-  const [resultado, setResultado] = useState(null);
-  const [error, setError] = useState(null);
-  const [yaSeBusco, setYaSeBusco] = useState(false);
+  const { theme, isDark, alternarTema } = useTema();
+  const [params, setParams] = useSearchParams();
+  const idUrl = params.get('id') ?? '';
+  const [idBusqueda, setIdBusqueda] = useState(idUrl);
+  const [invalido, setInvalido] = useState(null);
+  // Copy of the event being corrected: the page reloads the event after
+  // the correction, but the modal must keep showing its report.
+  const [editando, setEditando] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  const [marcando, setMarcando] = useState(false);
 
-  const isDark = theme === 'dark';
-  const API_URL = import.meta.env.VITE_API_URL;
+  const { datos: evento, cargando, error, recargar, sincronizar } = useCarga(consultasService.evento, { inmediato: false });
 
-  const buscarEvento = async (e) => {
+  // Search again whenever the id in the URL changes
+  useEffect(() => {
+    if (idUrl) sincronizar(Number(idUrl));
+  }, [idUrl, sincronizar]);
+
+  const buscarEvento = (e) => {
     e.preventDefault();
-
-    const idNumerico = Number(idBusqueda);
-    if (!Number.isInteger(idNumerico) || idNumerico <= 0) {
-      setError('Ingresa un identificador numérico válido (entero positivo).');
+    const id = Number(idBusqueda);
+    if (!Number.isInteger(id) || id <= 0) {
+      setInvalido('Ingresa un identificador numérico válido (entero positivo).');
       return;
     }
+    setInvalido(null);
+    setAviso(null);
+    if (String(id) === idUrl) recargar(id);
+    else setParams({ id: String(id) });
+  };
 
+  const marcarRevisado = async () => {
     try {
-      setBuscando(true);
-      setError(null);
-      setResultado(null);
-      setYaSeBusco(true);
-
-      const respuesta = await fetch(`${API_URL}/sismos/${idNumerico}`);
-      const data = await respuesta.json();
-
-      if (!respuesta.ok && respuesta.status !== 200) {
-        throw new Error(data?.message || data?.error || 'No se pudo consultar el evento.');
-      }
-
-      setResultado(data);
+      setMarcando(true);
+      const r = await sismosService.marcarRevisado(evento.id);
+      notificarCambioDeEstado();
+      setAviso({ tipo: 'exito', texto: r?.message || 'Evento marcado como revisado.' });
     } catch (err) {
-      console.error('Error consultando evento:', err);
-      setError(err.message || 'Error al consultar el evento.');
+      setAviso({ tipo: 'error', texto: err.message });
     } finally {
-      setBuscando(false);
+      setMarcando(false);
     }
   };
 
-  const Campo = ({ label, value, mono = false }) => (
-    <div className="flex items-center justify-between py-2 border-b border-zinc-500/10 last:border-0">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{label}</span>
-      <span className={`text-sm font-bold text-right ${mono ? 'font-mono' : ''}`}>{value}</span>
-    </div>
-  );
+  const alCorregir = useCallback(() => {
+    notificarCambioDeEstado();
+  }, []);
 
-  const Seccion = ({ titulo, icon: Icon, children, acento = false }) => (
-    <div
-      className={`p-4 rounded-2xl border ${
-        acento
-          ? isDark ? 'bg-orange-500/5 border-orange-500/20' : 'bg-orange-50/60 border-orange-200/60'
-          : isDark ? 'bg-zinc-900/50 border-zinc-800/80' : 'bg-white border-zinc-200'
-      }`}
-    >
-      <h4 className={`text-[10px] font-black uppercase tracking-wide mb-1 flex items-center gap-1.5 ${
-        acento ? 'text-orange-500' : 'text-zinc-500'
-      }`}>
-        {Icon && <Icon className="w-3.5 h-3.5" />}
-        {titulo}
-      </h4>
-      {children}
-    </div>
-  );
+  const estado = evento?.estado;
+  const conDatos = evento && estado !== 'eliminado';
 
   return (
-    <div
-      className={`min-h-screen w-full flex flex-col font-sans transition-colors duration-300 ${
-        isDark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'
-      }`}
-    >
-      <Navbar theme={theme} onToggleTheme={() => setTheme(isDark ? 'light' : 'dark')} />
+    <div className={`min-h-screen w-full flex flex-col font-sans transition-colors duration-300 ${isDark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}>
+      <Navbar theme={theme} onToggleTheme={alternarTema} />
 
-      <main className="flex-1 max-w-2xl w-full mx-auto p-6 space-y-5">
-        {/* Encabezado */}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 space-y-5">
         <div>
           <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
             <Search className="w-5 h-5 text-orange-500" />
             Consultar evento
           </h1>
           <p className={`text-sm mt-1 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-            Localiza un evento por su identificador, aunque su prioridad o magnitud hayan cambiado desde la creación.
+            Localiza un evento por su identificador, aunque su prioridad o magnitud hayan cambiado o ya no esté activo.
           </p>
         </div>
 
-        {/* Buscador */}
-        <form onSubmit={buscarEvento} className="flex gap-2">
+        <form onSubmit={buscarEvento} className="flex gap-2 max-w-2xl">
           <input
-            type="number"
-            min="1"
-            step="1"
+            type="number" min="1" step="1"
             value={idBusqueda}
             onChange={(e) => setIdBusqueda(e.target.value)}
             placeholder="Identificador del evento (ej: 3)"
-            className={`flex-1 px-4 py-3 rounded-2xl border outline-none text-sm font-bold transition-all ${
-              isDark
-                ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:border-orange-500'
-                : 'bg-white border-zinc-200 text-zinc-800 focus:border-orange-400'
+            aria-label="Identificador del evento"
+            className={`flex-1 min-w-0 px-4 py-3 rounded-2xl border outline-none text-sm font-bold transition-all ${
+              isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:border-orange-500' : 'bg-white border-zinc-200 text-zinc-800 focus:border-orange-400'
             }`}
           />
-          <button
-            type="submit"
-            disabled={buscando}
-            className={`px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-wide text-white flex items-center gap-2 transition-all ${
-              buscando
-                ? 'bg-zinc-700 cursor-not-allowed opacity-70'
-                : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-amber-400 active:scale-95 shadow-md shadow-orange-500/20'
-            }`}
-          >
-            {buscando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            Buscar
-          </button>
+          <Boton type="submit" icono={Search} cargando={cargando}>Buscar</Boton>
         </form>
 
-        {/* Error de red / validación */}
-        {error && (
-          <div className="flex items-start gap-3 p-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-sm font-semibold">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
+        {invalido && <Aviso tipo="aviso">{invalido}</Aviso>}
+        {error && <Aviso tipo="error">{error}</Aviso>}
+        {aviso && <Aviso tipo={aviso.tipo} onCerrar={() => setAviso(null)}>{aviso.texto}</Aviso>}
 
-        {/* Resultado: eliminado */}
-        {!error && resultado && resultado.estado === 'eliminado' && (
-          <div className={`p-5 rounded-2xl border ${isDark ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
+        {!error && estado === 'eliminado' && (
+          <div className={`p-5 rounded-2xl border max-w-2xl ${isDark ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
             <div className="flex items-center gap-2 text-zinc-400 font-black text-sm uppercase mb-2">
-              <XCircle className="w-4 h-4" />
-              Identificador retirado
+              <XCircle className="w-4 h-4" /> Identificador retirado
             </div>
-            <p className="text-sm">{resultado.mensaje}</p>
+            <p className="text-sm">{evento.mensaje}</p>
             <p className={`text-xs mt-2 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
-              ID: {resultado.id} · No puede reutilizarse ni reactivarse mediante un reporte.
+              ID: {evento.id} · No puede reutilizarse ni reactivarse mediante un reporte.
             </p>
           </div>
         )}
 
-        {/* Resultado: activo */}
-        {!error && resultado && resultado.estado === 'activo' && (
-          <div className="space-y-3 animate-in fade-in duration-200">
-            <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-500 text-xs font-black uppercase">
-              <CheckCircle2 className="w-4 h-4" />
-              Activo · {resultado.status} · {resultado.formatted_id}
+        {!error && conDatos && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-black">{evento.formatted_id ?? `#${evento.id}`}</span>
+              <EstadoBadge estado={estado} />
+              {evento.status && <EstadoBadge estado={evento.status} />}
+              {evento.prioridad && <PrioridadBadge prioridad={evento.prioridad} />}
+              {estado === 'activo' && (
+                <div className="flex gap-2 ml-auto">
+                  {evento.status === 'Pendiente' && (
+                    <Boton variante="secundario" isDark={isDark} icono={CheckCheck} cargando={marcando} onClick={marcarRevisado}>
+                      Marcar revisado
+                    </Boton>
+                  )}
+                  <Boton icono={Pencil} onClick={() => setEditando(evento)}>Corregir</Boton>
+                </div>
+              )}
             </div>
 
-            <Seccion titulo="Datos vigentes" icon={Activity}>
-              <Campo label="Magnitud" value={`M ${resultado.magnitude}`} />
-              <Campo label="Profundidad hipocentro" value={`${resultado.depth} km`} />
-              <Campo label="Epicentro" value={`${resultado.epicenter_x}, ${resultado.epicenter_y}`} mono />
-              <Campo label="Revisión" value={resultado.revision} />
-              <Campo label="Estaciones que reportaron" value={(resultado.reporting_stations || []).join(', ') || '—'} />
-            </Seccion>
+            {NOTA_ESTADO[estado] && (
+              <Aviso tipo="info" titulo={estado === 'archivado' ? 'Evento archivado' : 'Evento retirado'}>
+                <span className="flex items-center gap-1.5">
+                  {estado === 'archivado' ? <Archive className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  {NOTA_ESTADO[estado]}
+                </span>
+              </Aviso>
+            )}
 
-            <Seccion titulo="Zona y prioridad" icon={MapPin}>
-              <Campo
-                label="Zona poblada"
-                value={resultado.zona_poblada === null ? '—' : resultado.zona_poblada ? 'Sí' : 'No'}
-              />
-              <Campo label="Prioridad" value={resultado.prioridad ?? '—'} />
-              <Campo label="Clave K=(P,M,I)" value={resultado.clave ? `(${resultado.clave.join(', ')})` : '—'} mono />
-            </Seccion>
-
-            <Seccion titulo="Datos del árbol AVL" icon={SlidersHorizontal} acento>
-              <Campo label="Profundidad del nodo" value={resultado.profundidad_nodo ?? 'No sincronizado'} />
-              <Campo label="Altura del nodo" value={resultado.altura_nodo ?? 'No sincronizado'} />
-              <Campo label="Factor de balance" value={resultado.factor_balance ?? 'No sincronizado'} />
-            </Seccion>
-
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              <FichaEvento evento={evento} isDark={isDark} />
+              <Seccion titulo="Asociaciones (posibles réplicas)" icon={Link2} isDark={isDark}>
+                <div className="pt-2">
+                  <AsociacionesEvento sismoId={evento.id} isDark={isDark} />
+                </div>
+              </Seccion>
+            </div>
           </div>
         )}
 
-        {/* Estado inicial */}
-        {!yaSeBusco && !error && (
+        {!evento && !error && !cargando && !idUrl && (
           <div className={`py-16 text-center text-sm ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>
             Escribe un identificador y presiona Buscar.
           </div>
         )}
       </main>
+
+      <EditSismoModal
+        isOpen={editando !== null}
+        sismo={editando}
+        isDark={isDark}
+        onClose={() => setEditando(null)}
+        onSave={alCorregir}
+      />
     </div>
   );
 };

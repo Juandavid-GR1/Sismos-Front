@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Undo2, Loader2 } from 'lucide-react';
 import { historialService } from '../../services/historialService';
-import { useEstadoCambiado } from '../../hooks/useEstadoCambiado';
+import { useAccionRegistrada } from '../../hooks/useEstadoCambiado';
 
 /**
  * Global "Deshacer" button (section 13). Shows how many actions can be
@@ -21,15 +21,19 @@ export const UndoButton = ({ isDark }) => {
     }
   }, []);
 
+  // No polling: the counter loads once and then only when an action is
+  // recorded (every service announces it) or when the user comes back to
+  // this tab (changes made from another tab or from Postman).
   useEffect(() => {
     cargar();
-    // Other pages record actions without knowing about this button, so
-    // the counter is refreshed periodically (cheap GET).
-    const id = setInterval(cargar, 3000);
-    return () => clearInterval(id);
+    const alVolver = () => {
+      if (document.visibilityState === 'visible') cargar();
+    };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => document.removeEventListener('visibilitychange', alVolver);
   }, [cargar]);
 
-  useEstadoCambiado(cargar);
+  useAccionRegistrada(cargar);
 
   useEffect(() => {
     if (!aviso) return undefined;

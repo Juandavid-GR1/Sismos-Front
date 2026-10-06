@@ -1,5 +1,6 @@
 
-const API_URL = import.meta.env.VITE_API_URL;
+import { API_URL } from './api';
+import { notificarAccionRegistrada } from './historialService';
 
 const ENDPOINT = `${API_URL}/reportes/cola`;
 
@@ -41,6 +42,10 @@ export const descartarReporte = async () => {
         }
     );
 
+    // 2xx and business rejections (400/409) change the scenario: the undo
+    // counter must reload. 404 = empty queue, 5xx = nothing was recorded.
+    if (response.status < 500 && response.status !== 404) notificarAccionRegistrada();
+
     const data: RespuestaError & {
         reporte?: unknown;
     } = await response.json();
@@ -62,6 +67,10 @@ export const validarYEmitirReporte = async () => {
             method: 'POST'
         }
     );
+
+    // 2xx and business rejections (400/409) change the scenario: the undo
+    // counter must reload. 404 = empty queue, 5xx = nothing was recorded.
+    if (response.status < 500 && response.status !== 404) notificarAccionRegistrada();
 
     const data: RespuestaError & {
         reporte?: unknown;
