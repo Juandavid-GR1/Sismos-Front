@@ -159,10 +159,6 @@ export const ArbolesPage = () => {
                 <SelectorDibujo valor={verArbol} onCambiar={setVerArbol} isDark={isDark} />
               </div>
               <ComparacionArboles resultado={resultado} isDark={isDark} />
-              <div className={`p-3 rounded-2xl border flex gap-2 items-start text-[11px] leading-relaxed ${isDark ? 'bg-orange-500/5 border-orange-500/15 text-zinc-400' : 'bg-orange-50/60 border-orange-200/60 text-zinc-600'}`}>
-                <Scale className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
-                Mismas claves y mismo orden de llegada en los dos árboles: el BST queda con la forma que dicte ese orden, mientras que el AVL rota para conservar una altura logarítmica.
-              </div>
             </>
           )}
         </aside>
