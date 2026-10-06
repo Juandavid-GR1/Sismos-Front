@@ -7,7 +7,7 @@ import { CampoFormulario } from '../../components/ui/CampoFormulario';
 import { AsociacionesEvento } from '../../components/consulta/AsociacionesEvento';
 import { ConfigAsociaciones } from '../../components/analisis/ConfigAsociaciones';
 
-/** Section 7: associations of one event and the W / R parameters. */
+/** Associations of one event and the W / R parameters. */
 export const AsociacionesPage = () => {
   const { isDark } = useOutletContext();
   const [params, setParams] = useSearchParams();

@@ -10,12 +10,14 @@ export const ResultadoConsulta = ({ datos, error, isDark }) => {
   if (error) return <Aviso tipo="error">{error}</Aviso>;
   if (!datos) return null;
   const eventos = datos.eventos ?? [];
+  // Section 11: every query reports how many AVL nodes it examined
+  const examinados = datos.nodos_avl_examinados ?? datos.nodos_visitados;
   return (
     <div className="space-y-3 mt-4">
       {datos.criterio && (
         <p className={`text-[11px] leading-relaxed ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
           <strong className="text-orange-500">Recorrido:</strong> {datos.criterio}
-          {typeof datos.nodos_visitados === 'number' && ` · ${datos.nodos_visitados} nodos visitados`}
+          {typeof examinados === 'number' && ` · ${examinados} nodos del AVL examinados`}
           {` · ${eventos.length} resultado${eventos.length === 1 ? '' : 's'}`}
         </p>
       )}

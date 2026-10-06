@@ -1,4 +1,4 @@
-import { BarChart3, Search, Archive, Link2, Settings2 } from 'lucide-react';
+import { BarChart3, Search, Archive, Link2, Settings2, HardDrive } from 'lucide-react';
 
 // Tabs of the "Análisis" section. Used by the router (App.jsx), the
 // Navbar sub-menu and the layout header: one single list to maintain.
@@ -13,7 +13,7 @@ export const SECCIONES_ANALISIS = [
     ruta: 'consultas',
     etiqueta: 'Consultas',
     icono: Search,
-    descripcion: 'Consultas sobre el catálogo activo.',
+    descripcion: 'Consultas sobre el catálogo activo apoyadas en el recorrido del AVL.',
   },
   {
     ruta: 'archivo',
@@ -32,5 +32,11 @@ export const SECCIONES_ANALISIS = [
     etiqueta: 'Parámetros',
     icono: Settings2,
     descripcion: 'Reloj del escenario y parámetros L, T, W y R.',
+  },
+  {
+    ruta: 'persistencia',
+    etiqueta: 'Persistencia',
+    icono: HardDrive,
+    descripcion: 'Exportar y cargar el escenario y versiones con nombre.',
   },
 ];

@@ -39,6 +39,7 @@ export const RamaElegible = ({ isDark }) => {
       isDark={isDark}
       icono={Eye}
       titulo="Rama elegible para archivo"
+      subtitulo="Subárbol de prioridad baja cuyos eventos superan T horas de antigüedad según el reloj del escenario. Si hay varias, se elige la de más nodos."
       acciones={<Boton variante="secundario" isDark={isDark} icono={RefreshCw} cargando={cargando} onClick={() => recargar()}>Revisar</Boton>}
     >
       {error && <Aviso tipo="error">{error}</Aviso>}
@@ -50,8 +51,13 @@ export const RamaElegible = ({ isDark }) => {
             <Indicador isDark={isDark} etiqueta="Raíz" valor={`#${datos.raiz}`} resaltado />
             <Indicador isDark={isDark} etiqueta="Eventos" valor={datos.cantidad} />
             <Indicador isDark={isDark} etiqueta="Profundidad raíz" valor={datos.profundidad_raiz} />
-            {/* <Indicador isDark={isDark} etiqueta="Antigüedad mín." valor={`${formatearNumero(datos.antiguedad_minima_horas, 1)} h`} detalle={`T = ${datos.T} h`} /> */}
+            <Indicador isDark={isDark} etiqueta="Antigüedad mín." valor={`${formatearNumero(datos.antiguedad_minima_horas, 1)} h`} detalle={`T = ${datos.T} h`} />
           </div>
+          <p className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+            <strong className="text-orange-500">Eventos de la rama:</strong> {datos.ids.join(', ')}
+            <br />
+            <strong className="text-orange-500">Justificación:</strong> {datos.justificacion}
+          </p>
           {datos.candidatos?.length > 1 && (
             <div className={`text-[11px] ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
               Otras ramas elegibles:{' '}
@@ -69,7 +75,7 @@ export const RamaElegible = ({ isDark }) => {
       {resultado && (
         <div className="mt-3">
           <Aviso tipo="exito" titulo="Rama archivada" onCerrar={() => setResultado(null)}>
-            Se archivaron {resultado.cantidad} evento(s): {(resultado.ids_eliminados ?? []).join(', ')}. Puedes revertirlo con «Deshacer».
+            Se archivaron {resultado.cantidad} evento(s): {(resultado.eventos_archivados ?? resultado.ids_eliminados ?? []).join(', ')}. Puedes revertirlo con «Deshacer».
           </Aviso>
         </div>
       )}

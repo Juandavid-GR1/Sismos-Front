@@ -45,7 +45,7 @@ export const ArchivoManual = ({ isDark }) => {
         {error && <Aviso tipo="error">{error}</Aviso>}
         {resultado && (
           <Aviso tipo="exito" titulo="Rama archivada" onCerrar={() => setResultado(null)}>
-            {resultado.cantidad} evento(s) archivados: {(resultado.ids_eliminados ?? []).join(', ')}.
+            {resultado.cantidad} evento(s) archivados: {(resultado.eventos_archivados ?? resultado.ids_eliminados ?? []).join(', ')}.
           </Aviso>
         )}
       </div>

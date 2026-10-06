@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   GitBranch, Network, RefreshCw, Activity, Database, Layers, SlidersHorizontal,
   Workflow, AlertTriangle, RotateCw, Scale, Cpu,
@@ -22,6 +22,9 @@ const cargarArbol = async () => {
   return { metricas, topologia };
 };
 
+// Only the original insertion order (arrival order of the events)
+const cargarComparacion = () => arbolService.comparacion('original');
+
 const VISTAS = [
   { valor: 'avl', etiqueta: 'AVL activo', icono: Network },
   { valor: 'bst', etiqueta: 'AVL vs BST', icono: GitBranch },
@@ -38,16 +41,18 @@ const VISTAS = [
 export const ArbolesPage = () => {
   const { theme, isDark, alternarTema } = useTema();
   const navigate = useNavigate();
-  const [vista, setVista] = useState('avl');
+  // ?vista=bst opens the comparison directly (link shown after a load by insertions)
+  const [parametros] = useSearchParams();
+  const [vistaInicial] = useState(() => (parametros.get('vista') === 'bst' ? 'bst' : 'avl'));
+  const [vista, setVista] = useState(vistaInicial);
   const [verArbol, setVerArbol] = useState('bst');
 
   const arbol = useCarga(cargarArbol);
-  // Only the original insertion order (arrival order of the events)
-  const comparacion = useCarga(arbolService.comparacion, { inmediato: false });
+  const comparacion = useCarga(cargarComparacion, { inmediato: vistaInicial === 'bst' });
 
   const cambiarVista = (nueva) => {
     setVista(nueva);
-    if (nueva === 'bst') comparacion.recargar('original');
+    if (nueva === 'bst') comparacion.recargar();
   };
 
   const metricas = arbol.datos?.metricas;
@@ -94,7 +99,7 @@ export const ArbolesPage = () => {
             </div>
             <button
               type="button"
-              onClick={() => (vista === 'avl' ? arbol.recargar() : comparacion.recargar('original'))}
+              onClick={() => (vista === 'avl' ? arbol.recargar() : comparacion.recargar())}
               title="Sincronizar"
               aria-label="Sincronizar"
               className={`p-2 rounded-xl border transition-all active:scale-95 ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-orange-400' : 'bg-white border-zinc-200 text-zinc-700 hover:text-orange-600'}`}
@@ -150,10 +155,14 @@ export const ArbolesPage = () => {
           {vista === 'bst' && (
             <>
               <div className="space-y-1.5">
-                <span className="text-[10px] font-bold uppercase text-zinc-500 block">Árbol</span>
+                <span className="text-[10px] font-bold uppercase text-zinc-500 block">Árbol en el lienzo</span>
                 <SelectorDibujo valor={verArbol} onCambiar={setVerArbol} isDark={isDark} />
               </div>
               <ComparacionArboles resultado={resultado} isDark={isDark} />
+              <div className={`p-3 rounded-2xl border flex gap-2 items-start text-[11px] leading-relaxed ${isDark ? 'bg-orange-500/5 border-orange-500/15 text-zinc-400' : 'bg-orange-50/60 border-orange-200/60 text-zinc-600'}`}>
+                <Scale className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                Mismas claves y mismo orden de llegada en los dos árboles: el BST queda con la forma que dicte ese orden, mientras que el AVL rota para conservar una altura logarítmica.
+              </div>
             </>
           )}
         </aside>
@@ -170,7 +179,7 @@ export const ArbolesPage = () => {
           />
         ) : (
           <LienzoArbol
-            titulo={`${verArbol.toUpperCase()}`}
+            titulo={`${verArbol.toUpperCase()} · orden original`}
             raiz={resultado?.topologia?.[verArbol]}
             isDark={isDark}
             cargando={comparacion.cargando}
@@ -187,3 +196,4 @@ export const ArbolesPage = () => {
     </div>
   );
 };
+

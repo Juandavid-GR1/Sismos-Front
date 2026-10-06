@@ -21,7 +21,7 @@ const CONTADORES = [
   { clave: 'eventos_archivados', etiqueta: 'Eventos archivados', icono: History },
 ];
 
-/** Section 14: every indicator in one place (GET /metricas). */
+/** Every indicator in one place (GET /metricas). */
 export const IndicadoresPage = () => {
   const { isDark } = useOutletContext();
   const { datos, cargando, error, recargar } = useCarga(metricasService.indicadores);

@@ -10,6 +10,7 @@ import { ConsultasPage } from './Pages/analisis/ConsultasPage';
 import { ArchivoPage } from './Pages/analisis/ArchivoPage';
 import { AsociacionesPage } from './Pages/analisis/AsociacionesPage';
 import { ParametrosPage } from './Pages/analisis/ParametrosPage';
+import { PersistenciaPage } from './Pages/analisis/PersistenciaPage';
 
 export default function App() {
   return (
@@ -25,7 +26,7 @@ export default function App() {
         <Route path="/observatorio/arboles" element={<ArbolesPage />} />
         <Route path="/observatorio/consultar" element={<ConsultarEventoPage />} />
 
-        {/* Análisis: indicadores, consultas, archivo, asociaciones y parámetros */}
+        {/* Análisis: indicadores, consultas, archivo, asociaciones, parámetros y persistencia */}
         <Route path="/analisis" element={<AnalisisLayout />}>
           <Route index element={<Navigate to="indicadores" replace />} />
           <Route path="indicadores" element={<IndicadoresPage />} />
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="archivo" element={<ArchivoPage />} />
           <Route path="asociaciones" element={<AsociacionesPage />} />
           <Route path="parametros" element={<ParametrosPage />} />
+          <Route path="persistencia" element={<PersistenciaPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

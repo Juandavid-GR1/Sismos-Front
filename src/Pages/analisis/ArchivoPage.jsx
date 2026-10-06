@@ -4,7 +4,7 @@ import { RamaElegible } from '../../components/analisis/RamaElegible';
 import { ArchivoManual } from '../../components/analisis/ArchivoManual';
 import { HistoricoEventos } from '../../components/analisis/HistoricoEventos';
 
-/** Section 10: automatic and manual branch archive, plus the history. */
+/** Automatic and manual branch archive, plus the history. */
 export const ArchivoPage = () => {
   const { isDark } = useOutletContext();
   return (

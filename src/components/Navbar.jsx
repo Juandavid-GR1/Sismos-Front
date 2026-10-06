@@ -222,8 +222,13 @@ export const Navbar = ({
                     : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50'
               }`}
             >
-              <Icono className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">{etiqueta}</span>
+              {({ isActive }) => (
+                <>
+                  <Icono className="w-3.5 h-3.5" />
+                  {/* The active tab always shows its name; the others only on wide screens (tooltip otherwise) */}
+                  <span className={isActive ? 'inline' : 'hidden 2xl:inline'}>{etiqueta}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -247,6 +252,17 @@ export const Navbar = ({
             <span className="tracking-wide">Nueva Estación</span>
           </button>
         )}
+
+        {/* Profile Avatar */}
+        <div className={`flex items-center pl-3 border-l ${isDark ? 'border-zinc-800' : 'border-amber-200/60'}`}>
+          <button className="relative p-0.5 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-400 hover:scale-105 transition-transform duration-300 focus:outline-none">
+            <div className={`w-8 h-8 rounded-[14px] flex items-center justify-center ${
+              isDark ? 'bg-zinc-950 text-orange-400' : 'bg-white text-orange-500'
+            }`}>
+              <User className="h-4 w-4" />
+            </div>
+          </button>
+        </div>
       </div>
     </header>
   );
